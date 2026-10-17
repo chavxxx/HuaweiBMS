@@ -25,7 +25,7 @@ cd ..
 
 echo [3/4] Installing backend packaging dependencies...
 python -m pip install -r backend/requirements.txt
-python -m pip install pyinstaller
+python -m pip install pyinstaller pywebview pillow
 
 echo [4/4] Compiling standalone Windows executable with PyInstaller...
 python -m PyInstaller HuaweiEMSManager.spec --noconfirm --clean

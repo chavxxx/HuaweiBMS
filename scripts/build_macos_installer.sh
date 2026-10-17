@@ -34,7 +34,12 @@ if [ ! -f "assets/HuaweiEMS.icns" ]; then
 fi
 
 echo "[3/4] Compiling macOS Application Bundle (.app) with PyInstaller..."
-backend/venv/bin/pyinstaller HuaweiEMSManager.spec --noconfirm --clean
+if [ -f "${PROJECT_ROOT}/backend/venv/bin/pyinstaller" ]; then
+  PYI="${PROJECT_ROOT}/backend/venv/bin/pyinstaller"
+else
+  PYI="pyinstaller"
+fi
+"${PYI}" HuaweiEMSManager.spec --noconfirm --clean
 
 APP_PATH="${PROJECT_ROOT}/dist/Huawei EMS B1 Battery Manager.app"
 echo "Cleaning extended attributes and ad-hoc signing..."

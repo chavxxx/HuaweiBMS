@@ -34,8 +34,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "..\dist\HuaweiEMSManager\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; Serial driver help documentation
-Source: "..\docs\WIRING_AND_CONNECTION_GUIDE.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+; Serial driver and user documentation
+Source: "..\docs\RS485_WIRING_GUIDE.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "..\docs\INSTALLATION_WINDOWS.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

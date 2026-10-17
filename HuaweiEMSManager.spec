@@ -73,9 +73,9 @@ else:
 icon_file = None
 if sys.platform == "darwin" and (ROOT_DIR / "assets" / "HuaweiEMS.icns").exists():
     icon_file = str(ROOT_DIR / "assets" / "HuaweiEMS.icns")
-elif sys.platform == "win32" and (ROOT_DIR / "assets" / "icon.ico").exists():
+elif (ROOT_DIR / "assets" / "icon.ico").exists():
     icon_file = str(ROOT_DIR / "assets" / "icon.ico")
-elif (ROOT_DIR / "assets" / "icon.png").exists():
+elif (ROOT_DIR / "assets" / "icon.png").exists() and sys.platform != "win32":
     icon_file = str(ROOT_DIR / "assets" / "icon.png")
 
 a = Analysis(
