@@ -25,6 +25,7 @@ hiddenimports = [
     "uvicorn.logging",
     "uvicorn.loops",
     "uvicorn.loops.auto",
+    "uvicorn.loops.asyncio",
     "uvicorn.protocols",
     "uvicorn.protocols.http",
     "uvicorn.protocols.http.auto",
@@ -44,9 +45,12 @@ hiddenimports = [
     "serial.tools.list_ports_osx",
     "serial.tools.list_ports_posix",
     "serial.tools.list_ports_windows",
+    "serial.serialwin32",
     "sqlite3",
     "aiosqlite",
     "webview",
+    "ctypes",
+    "multiprocessing",
 ]
 
 # Platform-specific webview modules
