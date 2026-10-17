@@ -50,7 +50,30 @@ graph TD
 
 ---
 
-## 2. Key Capabilities & Safety Protections
+## 2. Multi-Platform Standalone Installers
+
+Standalone desktop application packages are available for **macOS**, **Windows**, and **Linux**. These installers bundle Python 3, PySerial, all register maps, and the compiled React user interface into a self-contained desktop application. **No developer tools (Python, Node.js, npm) are required by end users.**
+
+| Platform | Package Format | Installation Method |
+| :--- | :--- | :--- |
+| **macOS** | `.dmg` Disk Image (Apple Silicon & Intel) | Open `.dmg` and drag `Huawei EMS B1 Battery Manager.app` to `/Applications`. |
+| **Windows** | `.exe` Setup Wizard & Portable `.zip` | Run `Huawei-EMS-B1-Manager-Windows-x64-Setup.exe` (creates desktop & start menu shortcuts). |
+| **Linux** | `.tar.gz` + Automated System Installer | Extract archive and execute `sudo ./install.sh` (installs to `/opt` & sets up dialout permissions). |
+
+*Full documentation: [docs/STANDALONE_INSTALLERS.md](docs/STANDALONE_INSTALLERS.md)*
+
+### Building Installers from Source:
+```bash
+# Universal cross-platform build (auto-detects OS):
+python3 scripts/build_installer.py
+
+# Or via npm shortcut:
+npm run build:installer
+```
+
+---
+
+## 3. Key Capabilities & Safety Protections
 
 ### A. Real Hardware Integration
 - **Direct Serial Access:** Communicates directly with USB-to-RS485 adapters (FTDI, Silicon Labs CP210x, WCH CH340, Prolific).

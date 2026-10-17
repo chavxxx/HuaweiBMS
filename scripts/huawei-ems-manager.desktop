@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Huawei EMS B1 Battery Manager
+GenericName=Battery Management System Manager
+Comment=Production-quality Huawei EMS 4805B1 BMS Management and Monitoring Application over USB-to-RS485
+Exec=/opt/huawei-ems-manager/HuaweiEMSManager
+Icon=/opt/huawei-ems-manager/assets/icon.png
+Terminal=false
+Categories=Utility;Engineering;HardwareSettings;
+Keywords=Huawei;BMS;Battery;RS485;Modbus;ESM4805B1;
+StartupNotify=true

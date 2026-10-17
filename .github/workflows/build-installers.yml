@@ -1,0 +1,181 @@
+name: Build Multi-Platform Standalone Installers
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build macOS Installer (.dmg)
+    runs-on: macos-14
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build React Frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pyinstaller pywebview
+
+      - name: Build macOS App Bundle and DMG
+        run: |
+          chmod +x scripts/build_macos_installer.sh
+          ./scripts/build_macos_installer.sh
+
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Huawei-EMS-B1-Manager-macOS
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows Installer (.exe)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build React Frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pyinstaller pywebview
+
+      - name: Compile Windows Standalone Binary
+        run: |
+          pyinstaller HuaweiEMSManager.spec --noconfirm --clean
+
+      - name: Build Inno Setup Installer
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
+        with:
+          path: scripts/installer_windows.iss
+
+      - name: Create Portable Zip
+        run: |
+          Compress-Archive -Path dist/HuaweiEMSManager/* -DestinationPath dist/Huawei-EMS-B1-Manager-Windows-x64-Portable.zip
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Huawei-EMS-B1-Manager-Windows
+          path: |
+            dist/*Setup.exe
+            dist/*Portable.zip
+          if-no-files-found: error
+
+  build-linux:
+    name: Build Linux Distribution (.tar.gz)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build React Frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install Linux Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.0-dev build-essential
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pyinstaller pywebview
+
+      - name: Build Linux Distribution
+        run: |
+          chmod +x scripts/build_linux_installer.sh scripts/install_linux.sh
+          ./scripts/build_linux_installer.sh
+
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Huawei-EMS-B1-Manager-Linux
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Publish Release Packages
+    needs: [build-macos, build-windows, build-linux]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release_artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release_artifacts/**/*.dmg
+            release_artifacts/**/*.exe
+            release_artifacts/**/*.zip
+            release_artifacts/**/*.tar.gz
+          generate_release_notes: true

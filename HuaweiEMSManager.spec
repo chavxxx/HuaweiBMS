@@ -1,0 +1,144 @@
+# -*- mode: python ; coding: utf-8 -*-
+"""PyInstaller spec for Huawei EMS B1 Battery Manager across macOS, Windows, and Linux."""
+
+import sys
+import os
+from pathlib import Path
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+
+block_cipher = None
+
+ROOT_DIR = Path.cwd()
+FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
+DATA_DIR = ROOT_DIR / "backend" / "app" / "data"
+
+datas = [
+    (str(FRONTEND_DIST), "frontend/dist"),
+    (str(FRONTEND_DIST), "dist"),
+    (str(DATA_DIR), "app/data"),
+    (str(DATA_DIR), "data"),
+]
+
+# Collect hidden submodules
+hiddenimports = [
+    "uvicorn",
+    "uvicorn.logging",
+    "uvicorn.loops",
+    "uvicorn.loops.auto",
+    "uvicorn.protocols",
+    "uvicorn.protocols.http",
+    "uvicorn.protocols.http.auto",
+    "uvicorn.protocols.http.h11_impl",
+    "uvicorn.protocols.http.httptools_impl",
+    "uvicorn.protocols.websockets",
+    "uvicorn.protocols.websockets.auto",
+    "uvicorn.protocols.websockets.websockets_impl",
+    "uvicorn.lifespan",
+    "uvicorn.lifespan.on",
+    "fastapi",
+    "starlette",
+    "pydantic",
+    "serial",
+    "serial.tools",
+    "serial.tools.list_ports",
+    "serial.tools.list_ports_osx",
+    "serial.tools.list_ports_posix",
+    "serial.tools.list_ports_windows",
+    "sqlite3",
+    "aiosqlite",
+    "webview",
+]
+
+# Platform-specific webview modules
+if sys.platform == "darwin":
+    hiddenimports.extend([
+        "webview.platforms.cocoa",
+        "objc",
+        "Foundation",
+        "AppKit",
+        "WebKit",
+    ])
+elif sys.platform == "win32":
+    hiddenimports.extend([
+        "webview.platforms.winforms",
+        "webview.platforms.edgechromium",
+    ])
+else:
+    hiddenimports.extend([
+        "webview.platforms.gtk",
+        "webview.platforms.qt",
+    ])
+
+# Optional icons
+icon_file = None
+if sys.platform == "darwin" and (ROOT_DIR / "assets" / "HuaweiEMS.icns").exists():
+    icon_file = str(ROOT_DIR / "assets" / "HuaweiEMS.icns")
+elif sys.platform == "win32" and (ROOT_DIR / "assets" / "icon.ico").exists():
+    icon_file = str(ROOT_DIR / "assets" / "icon.ico")
+elif (ROOT_DIR / "assets" / "icon.png").exists():
+    icon_file = str(ROOT_DIR / "assets" / "icon.png")
+
+a = Analysis(
+    [str(ROOT_DIR / "backend" / "app" / "desktop.py")],
+    pathex=[str(ROOT_DIR / "backend")],
+    binaries=[],
+    datas=datas,
+    hiddenimports=hiddenimports,
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=["tkinter", "matplotlib", "scipy", "notebook", "IPython"],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
+    noarchive=False,
+)
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name="HuaweiEMSManager",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=icon_file,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name="HuaweiEMSManager",
+)
+
+# macOS Application Bundle (.app)
+if sys.platform == "darwin":
+    app = BUNDLE(
+        coll,
+        name="Huawei EMS B1 Battery Manager.app",
+        icon=icon_file,
+        bundle_identifier="com.huawei.bms.manager",
+        info_plist={
+            "CFBundleShortVersionString": "1.0.0",
+            "CFBundleVersion": "1.0.0",
+            "NSHighResolutionCapable": "True",
+            "NSRequiresAquaSystemAppearance": "False",
+            "LSMinimumSystemVersion": "10.15",
+            "NSHumanReadableCopyright": "Copyright © 2026 Huawei EMS B1 Battery Manager",
+        },
+    )

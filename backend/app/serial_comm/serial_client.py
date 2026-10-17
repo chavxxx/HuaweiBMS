@@ -242,9 +242,9 @@ class SerialClient:
             "baudrate": self.config.baudrate,
             "slave_id": self.config.slave_id,
             "stats": asdict(self.stats),
-            "recent_frames": [asdict(f) for f in list(self._trace_buffer)[-50:]]
+            "recent_frames": [f.to_dict() for f in list(self._trace_buffer)[-50:]]
         }
 
     def get_full_trace(self) -> list[dict]:
         """Export full recent diagnostic traces."""
-        return [asdict(f) for f in list(self._trace_buffer)]
+        return [f.to_dict() for f in list(self._trace_buffer)]

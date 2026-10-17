@@ -73,7 +73,18 @@ export const ConnectDevicePage: React.FC<ConnectDevicePageProps> = ({ onRefreshT
     return () => clearInterval(timer)
   }, [])
 
-  const handleApplyPreset = () => {
+  const handleApplyEMS4805Preset = () => {
+    setBaudrate(9600)
+    setBytesize(8)
+    setParity('N')
+    setStopbits(1)
+    setSlaveId(214)
+    setTimeoutVal(1.0)
+    setInterFrameDelay(0.02)
+    setSuccessMsg('Applied Huawei EMS-4805B1 Verified Preset: 9600 8-N-1, Slave ID 214 (0xD6)')
+  }
+
+  const handleApplyResidentialPreset = () => {
     setBaudrate(9600)
     setBytesize(8)
     setParity('N')
@@ -81,7 +92,7 @@ export const ConnectDevicePage: React.FC<ConnectDevicePageProps> = ({ onRefreshT
     setSlaveId(1)
     setTimeoutVal(1.0)
     setInterFrameDelay(0.02)
-    setSuccessMsg('Applied Huawei Default Preset: 9600 8-N-1, Slave ID 1')
+    setSuccessMsg('Applied Huawei Residential LUNA2000 Preset: 9600 8-N-1, Slave ID 1')
   }
 
   const handleConnect = async () => {
@@ -266,12 +277,21 @@ export const ConnectDevicePage: React.FC<ConnectDevicePageProps> = ({ onRefreshT
               Communication Parameters (Modbus RTU / RS485)
             </h3>
           </div>
-          <button
-            onClick={handleApplyPreset}
-            className="text-xs text-cyan-400 hover:text-cyan-300 underline font-mono"
-          >
-            Apply Huawei Default Preset
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleApplyEMS4805Preset}
+              className="px-2.5 py-1 bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-600/60 rounded text-xs text-cyan-300 font-mono font-bold transition flex items-center gap-1.5"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Huawei EMS-4805B1 Preset (Slave 214)</span>
+            </button>
+            <button
+              onClick={handleApplyResidentialPreset}
+              className="text-xs text-slate-400 hover:text-slate-300 underline font-mono"
+            >
+              Residential Preset (Slave 1)
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono">
@@ -451,6 +471,66 @@ export const ConnectDevicePage: React.FC<ConnectDevicePageProps> = ({ onRefreshT
               <Cpu className="w-4 h-4 text-amber-400" />
               <span>{isSim ? 'Using Virtual Simulator' : 'Switch to Virtual Simulator'}</span>
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Verified Hardware Wiring & Connection Guide */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-5 h-5 text-emerald-400" />
+          <h3 className="text-sm font-bold text-slate-100 font-mono">
+            Huawei EMS-4805B1 Physical Hardware Specifications & Wiring Guide
+          </h3>
+        </div>
+
+        <p className="text-xs text-slate-400 leading-relaxed font-sans">
+          The Huawei EMS-4805B1 / ESM-4805B1 BoostLi battery pack communicates over half-duplex RS485 via RJ45 COM ports (<span className="text-cyan-300 font-mono">COM_IN</span> and <span className="text-cyan-300 font-mono">COM_OUT</span>).
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
+          <div className="bg-slate-950 p-4 rounded-lg border border-slate-800 space-y-2">
+            <h4 className="font-bold text-cyan-300 text-[11px] uppercase tracking-wider">RJ45 Pinout Configuration</h4>
+            <ul className="space-y-1.5 text-slate-300">
+              <li className="flex items-center justify-between border-b border-slate-900 pb-1">
+                <span>Pins 1 &amp; 4:</span>
+                <span className="text-emerald-400 font-bold">RS485+ (A+) &rarr; Connect to Adapter A+</span>
+              </li>
+              <li className="flex items-center justify-between border-b border-slate-900 pb-1">
+                <span>Pins 2 &amp; 5:</span>
+                <span className="text-emerald-400 font-bold">RS485- (B-) &rarr; Connect to Adapter B-</span>
+              </li>
+              <li className="flex items-center justify-between border-b border-slate-900 pb-1">
+                <span>Pins 3 &amp; 6:</span>
+                <span className="text-slate-400">GND / NC &rarr; Connect to Adapter GND (optional ground ref)</span>
+              </li>
+              <li className="flex items-center justify-between">
+                <span>Pins 7 &amp; 8:</span>
+                <span className="text-slate-500">CAN-H / CAN-L (CAN bus only, leave disconnected for RS485)</span>
+              </li>
+            </ul>
+          </div>
+
+          <div className="bg-slate-950 p-4 rounded-lg border border-slate-800 space-y-2">
+            <h4 className="font-bold text-cyan-300 text-[11px] uppercase tracking-wider">Verified Operating Parameters</h4>
+            <ul className="space-y-1.5 text-slate-300">
+              <li className="flex items-center justify-between border-b border-slate-900 pb-1">
+                <span>Modbus Slave ID:</span>
+                <span className="text-cyan-300 font-bold">214 (0xD6) [Physical Verified]</span>
+              </li>
+              <li className="flex items-center justify-between border-b border-slate-900 pb-1">
+                <span>Serial Framing:</span>
+                <span className="text-cyan-300 font-bold">9600 Baud, 8 Data Bits, No Parity (8N1), 1 Stop Bit</span>
+              </li>
+              <li className="flex items-center justify-between border-b border-slate-900 pb-1">
+                <span>Function Code:</span>
+                <span className="text-cyan-300 font-bold">FC 0x03 (Read Holding Registers)</span>
+              </li>
+              <li className="flex items-center justify-between">
+                <span>Pack Topology:</span>
+                <span className="text-emerald-400 font-bold">16 LiFePO4 Cells in Series (51.2V Nom / 53.5V Rest)</span>
+              </li>
+            </ul>
           </div>
         </div>
       </div>

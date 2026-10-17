@@ -47,6 +47,12 @@ class ProtocolFrame:
     crc_valid: bool = True
     error: Optional[str] = None
 
+    def to_dict(self) -> dict[str, Any]:
+        from dataclasses import asdict
+        d = asdict(self)
+        d["raw_bytes"] = self.raw_hex
+        return d
+
 
 @dataclass
 class ProtocolResponse:

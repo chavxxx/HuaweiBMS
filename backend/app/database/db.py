@@ -6,10 +6,25 @@ import sqlite3
 from pathlib import Path
 from typing import Optional
 
+import sys
+
 logger = logging.getLogger("huawei_bms.database")
 
-DB_DIR = Path(__file__).resolve().parent.parent.parent / "data"
-DB_DIR.mkdir(parents=True, exist_ok=True)
+def get_user_data_dir() -> Path:
+    """Resolve writable data directory across development and frozen standalone modes."""
+    if os.environ.get("HUAWEI_BMS_DB_PATH"):
+        p = Path(os.environ["HUAWEI_BMS_DB_PATH"]).parent
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+    if getattr(sys, "frozen", False):
+        user_dir = Path.home() / ".huawei_bms_manager"
+        user_dir.mkdir(parents=True, exist_ok=True)
+        return user_dir
+    dev_dir = Path(__file__).resolve().parent.parent.parent / "data"
+    dev_dir.mkdir(parents=True, exist_ok=True)
+    return dev_dir
+
+DB_DIR = get_user_data_dir()
 DEFAULT_DB_PATH = DB_DIR / "huawei_bms.db"
 
 

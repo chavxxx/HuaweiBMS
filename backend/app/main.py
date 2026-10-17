@@ -138,11 +138,32 @@ def health_check():
 
 
 # Mount production frontend build if present
+import sys
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
-DIST_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+def resolve_frontend_dist() -> Path:
+    candidates = []
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        meipass = Path(sys._MEIPASS)
+        candidates.extend([
+            meipass / "frontend" / "dist",
+            meipass / "dist",
+            meipass / "resources" / "dist"
+        ])
+    candidates.extend([
+        Path(__file__).resolve().parent.parent.parent / "frontend" / "dist",
+        Path(__file__).resolve().parent.parent / "frontend" / "dist",
+        Path.cwd() / "frontend" / "dist",
+        Path.cwd() / "dist",
+    ])
+    for c in candidates:
+        if c.exists() and (c / "index.html").exists():
+            return c
+    return candidates[0]
+
+DIST_DIR = resolve_frontend_dist()
 if DIST_DIR.exists() and (DIST_DIR / "index.html").exists():
     assets_dir = DIST_DIR / "assets"
     if assets_dir.exists():
@@ -152,7 +173,7 @@ if DIST_DIR.exists() and (DIST_DIR / "index.html").exists():
     async def serve_spa(full_path: str):
         # Do not intercept API or WebSocket routes
         if full_path.startswith("api") or full_path.startswith("ws"):
-            return FileResponse(DIST_DIR / "index.html")
+            return JSONResponse(status_code=404, content={"detail": f"Route /{full_path} not found"})
         file_path = DIST_DIR / full_path
         if file_path.exists() and file_path.is_file():
             return FileResponse(file_path)

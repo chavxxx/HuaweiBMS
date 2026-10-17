@@ -56,9 +56,38 @@ class AppContext:
         self.telemetry_service.start_polling()
 
     def _load_default_registers(self):
-        default_path = Path(__file__).resolve().parent / "data" / "huawei_luna2000_bms_v3.json"
-        if default_path.exists():
-            cnt = self.register_db.import_from_json(default_path.read_text(encoding="utf-8"))
+        import sys
+        data_candidates = []
+        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+            meipass = Path(sys._MEIPASS)
+            data_candidates.extend([
+                meipass / "app" / "data",
+                meipass / "data",
+                meipass / "backend" / "app" / "data",
+            ])
+        data_candidates.append(Path(__file__).resolve().parent / "data")
+
+        data_dir = None
+        for d in data_candidates:
+            if d.exists() and (d / "huawei_ems_4805b1.json").exists():
+                data_dir = d
+                break
+        if not data_dir:
+            data_dir = data_candidates[-1]
+
+        # Load verified Huawei EMS 4805B1 physical registers
+        ems_b1_path = data_dir / "huawei_ems_4805b1.json"
+        if ems_b1_path.exists():
+            self.register_db.import_from_json(ems_b1_path.read_text(encoding="utf-8"))
+        else:
+            ems_a1_path = data_dir / "huawei_ems_4805a1.json"
+            if ems_a1_path.exists():
+                self.register_db.import_from_json(ems_a1_path.read_text(encoding="utf-8"))
+
+        # Also load standard Huawei residential/commercial reference
+        luna_path = data_dir / "huawei_luna2000_bms_v3.json"
+        if luna_path.exists():
+            self.register_db.import_from_json(luna_path.read_text(encoding="utf-8"))
 
 
 # Global singleton instance

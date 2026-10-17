@@ -8,7 +8,10 @@
     "test": "bash ./scripts/run_tests.sh",
     "dev:frontend": "cd frontend && npm run dev",
     "build:frontend": "cd frontend && npm run build",
-    "test:backend": "cd backend && ./venv/bin/pytest tests -v"
+    "test:backend": "cd backend && ./venv/bin/pytest tests -v",
+    "build:installer": "python3 ./scripts/build_installer.py",
+    "build:macos": "bash ./scripts/build_macos_installer.sh",
+    "build:linux": "bash ./scripts/build_linux_installer.sh"
   },
   "keywords": [
     "huawei",
