@@ -186,7 +186,7 @@ export const CellModuleMonitoringPage: React.FC<CellModuleMonitoringPageProps> =
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
         <h3 className="font-bold text-slate-200 text-sm font-mono flex items-center gap-2">
           <Thermometer className="w-4 h-4 text-rose-400" />
-          <span>Module Temperature Sensors (8 Probes)</span>
+          <span>Module Temperature Sensors ({cells?.temperatures?.length || 16} Probes)</span>
         </h3>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-3 font-mono text-xs">

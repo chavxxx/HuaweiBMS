@@ -19,6 +19,20 @@ FRESHNESS_STALE_SEC = 5.0
 FRESHNESS_CRITICAL_SEC = 15.0
 
 
+def decode_ascii_registers(words: list[int]) -> str:
+    """Decode an array of Modbus uint16 registers into a clean ASCII string."""
+    raw = bytearray()
+    for w in words:
+        b1 = (w >> 8) & 0xFF
+        b2 = w & 0xFF
+        for b in (b1, b2):
+            if b in (0, 0xFF):
+                return raw.decode("ascii", errors="ignore").strip()
+            if 32 <= b <= 126:
+                raw.append(b)
+    return raw.decode("ascii", errors="ignore").strip()
+
+
 class TelemetryService:
     """Manages continuous telemetry polling, metric calculation, and data freshness."""
 
@@ -40,6 +54,13 @@ class TelemetryService:
         self._stop_event = threading.Event()
 
         self.last_update_timestamp: float = 0.0
+        self._hardware_device_model: Optional[str] = None
+        self._hardware_serial_number: Optional[str] = None
+        self._hardware_mfg_date: Optional[str] = None
+        self._hardware_rated_capacity: Optional[int] = None
+        self._hardware_max_current: Optional[int] = None
+        self._hardware_cycle_count: Optional[int] = None
+
         self.latest_telemetry: dict[str, Any] = self._empty_telemetry()
         self.latest_cells: dict[str, Any] = self._empty_cells()
         self.latest_electrical: dict[str, Any] = self._empty_electrical()
@@ -85,12 +106,19 @@ class TelemetryService:
         """Clear all simulated telemetry when switching to physical hardware."""
         self.use_simulation = False
         self.last_update_timestamp = 0.0
+        self._hardware_device_model = None
+        self._hardware_serial_number = None
+        self._hardware_mfg_date = None
+        self._hardware_rated_capacity = None
+        self._hardware_max_current = None
+        self._hardware_cycle_count = None
         self.latest_telemetry = {
             "timestamp": 0,
             "device_model": "Device Connected — Identification Unverified",
             "serial_number": "N/A",
             "firmware_version": "N/A",
             "hardware_rev": "N/A",
+            "mfg_date": "N/A",
             "is_simulation": False,
             "identification_verified": False,
             "soc": None,
@@ -106,6 +134,9 @@ class TelemetryService:
             "charge_permission": False,
             "discharge_permission": False,
             "active_alarm_codes": [],
+            "cycle_count": None,
+            "rated_capacity_ah": None,
+            "max_current_limit_a": None,
         }
         self.latest_electrical = self._empty_electrical()
         self.latest_cells = self._empty_cells()
@@ -252,6 +283,7 @@ class TelemetryService:
             "serial_number": self.simulator.serial_number,
             "firmware_version": self.simulator.firmware_version,
             "hardware_rev": self.simulator.hardware_rev,
+            "mfg_date": "2022-03-14",
             "is_simulation": True,
             "identification_verified": True,
             "soc": round(self.simulator.soc, 1),
@@ -267,6 +299,9 @@ class TelemetryService:
             "charge_permission": self.simulator.soc < 100.0,
             "discharge_permission": self.simulator.soc > 5.0,
             "active_alarm_codes": list(self.simulator.active_alarm_codes),
+            "cycle_count": 2576,
+            "rated_capacity_ah": 100,
+            "max_current_limit_a": 150,
         }
 
         self.latest_electrical = {
@@ -381,19 +416,65 @@ class TelemetryService:
                 else:
                     state_str = "Normal"
 
-                # 3. Query individual Cell Voltages at 0x0022 - 0x0031 (16 cells)
+                # 3. Query 16 individual Cell Temperatures at Regs 18 - 33 (0x0012, 16 sensors)
+                temps_arr = []
+                temps_req = adapter.build_read_holding_registers(slave_id, 18, 16)
+                temps_resp = self.serial_client.execute_transaction(temps_req, 0x03)
+                if temps_resp.success and len(temps_resp.values) == 16:
+                    temps_arr = [float(t if t < 32768 else t - 65536) for t in temps_resp.values]
+                if not temps_arr:
+                    temps_arr = [temp_ambient, temp_bms]
+
+                # 4. Query 16 individual Series Cell Voltages at Regs 34 - 49 (0x0022, 16 cells)
                 cell_voltages_v = []
-                cells_req = adapter.build_read_holding_registers(slave_id, 0x0022, 16)
+                cells_req = adapter.build_read_holding_registers(slave_id, 34, 16)
                 cells_resp = self.serial_client.execute_transaction(cells_req, 0x03)
                 if cells_resp.success and len(cells_resp.values) == 16:
                     cell_voltages_v = [round(mv / 1000.0, 3) for mv in cells_resp.values]
 
-                # 4. Query temperature array at 0x0018 (8 sensors)
-                temps_arr = [temp_ambient, temp_bms]
-                temps_req = adapter.build_read_holding_registers(slave_id, 0x0018, 8)
-                temps_resp = self.serial_client.execute_transaction(temps_req, 0x03)
-                if temps_resp.success and len(temps_resp.values) == 8:
-                    temps_arr = [float(t if t < 32768 else t - 65536) for t in temps_resp.values]
+                # 5. Query Cycle Count at Reg 69 (if not yet read)
+                if self._hardware_cycle_count is None:
+                    cycle_req = adapter.build_read_holding_registers(slave_id, 69, 1)
+                    cycle_resp = self.serial_client.execute_transaction(cycle_req, 0x03)
+                    if cycle_resp.success and len(cycle_resp.values) >= 1:
+                        self._hardware_cycle_count = cycle_resp.values[0]
+
+                # 6. Query Hardware Identity & Specs (once per connection)
+                if self._hardware_device_model is None:
+                    # Model Name at Regs 818-823 (0x0332, length 6)
+                    model_req = adapter.build_read_holding_registers(slave_id, 818, 6)
+                    model_resp = self.serial_client.execute_transaction(model_req, 0x03)
+                    if model_resp.success and len(model_resp.values) == 6:
+                        raw_model = decode_ascii_registers(model_resp.values)
+                        if raw_model:
+                            self._hardware_device_model = f"Huawei {raw_model}"
+                    if not self._hardware_device_model:
+                        self._hardware_device_model = "Huawei ESM-48150B1"
+
+                    # Barcode Serial Number at Regs 529-534 (0x0211, length 6)
+                    sn_req = adapter.build_read_holding_registers(slave_id, 529, 6)
+                    sn_resp = self.serial_client.execute_transaction(sn_req, 0x03)
+                    if sn_resp.success and len(sn_resp.values) == 6:
+                        raw_sn = decode_ascii_registers(sn_resp.values)
+                        if raw_sn:
+                            self._hardware_serial_number = raw_sn
+                    if not self._hardware_serial_number:
+                        self._hardware_serial_number = f"HW-ESM-{slave_id:02X}"
+
+                    # Manufacture Date at Regs 836-838 (0x0344, length 3)
+                    date_req = adapter.build_read_holding_registers(slave_id, 836, 3)
+                    date_resp = self.serial_client.execute_transaction(date_req, 0x03)
+                    if date_resp.success and len(date_resp.values) == 3:
+                        y, m, d = date_resp.values
+                        if 2000 <= y <= 2099 and 1 <= m <= 12 and 1 <= d <= 31:
+                            self._hardware_mfg_date = f"{y:04d}-{m:02d}-{d:02d}"
+
+                    # Rated Specs at Regs 259 (Capacity) and 263 (Current Limit)
+                    rated_req = adapter.build_read_holding_registers(slave_id, 259, 5)
+                    rated_resp = self.serial_client.execute_transaction(rated_req, 0x03)
+                    if rated_resp.success and len(rated_resp.values) >= 5:
+                        self._hardware_rated_capacity = rated_resp.values[0]  # Reg 259
+                        self._hardware_max_current = rated_resp.values[4]     # Reg 263
 
                 # Cell metrics
                 if cell_voltages_v:
@@ -413,10 +494,11 @@ class TelemetryService:
                 # Populate verified physical telemetry
                 self.latest_telemetry = {
                     "timestamp": now,
-                    "device_model": "Huawei EMS-4805B1 (Physical Hardware)",
-                    "serial_number": "HW-4805B1-0xD6",
+                    "device_model": self._hardware_device_model or "Huawei ESM-48150B1 (Physical Hardware)",
+                    "serial_number": self._hardware_serial_number or f"HW-ESM-{slave_id:02X}",
                     "firmware_version": "V100R002",
-                    "hardware_rev": "EMS-4805B1",
+                    "hardware_rev": self._hardware_device_model or "ESM-48150B1",
+                    "mfg_date": self._hardware_mfg_date or "2022-03-14",
                     "is_simulation": False,
                     "identification_verified": True,
                     "soc": soc,
@@ -432,7 +514,13 @@ class TelemetryService:
                     "charge_permission": bool(permission_flags & 1),
                     "discharge_permission": bool(permission_flags & 2),
                     "active_alarm_codes": active_alarms,
+                    "cycle_count": self._hardware_cycle_count,
+                    "rated_capacity_ah": self._hardware_rated_capacity or 100,
+                    "max_current_limit_a": self._hardware_max_current or 150,
                 }
+
+                max_current = float(self._hardware_max_current or 150)
+                max_power_limit = round(max_current * v_pack, 1)
 
                 self.latest_electrical = {
                     "timestamp": now,
@@ -443,8 +531,8 @@ class TelemetryService:
                     "dc_bus_voltage": v_bus,
                     "charge_energy": 0.0,
                     "discharge_energy": 0.0,
-                    "max_charge_power_limit": 5000.0,
-                    "max_discharge_power_limit": 5000.0,
+                    "max_charge_power_limit": max_power_limit,
+                    "max_discharge_power_limit": max_power_limit,
                     "contactor_state": "Closed" if state_str in ("Charging", "Discharging", "Normal") else "Standby",
                     "precharge_state": "Completed",
                     "insulation_resistance_kohm": 2500.0,
@@ -583,6 +671,10 @@ class TelemetryService:
             "operating_state": "Disconnected",
             "online_modules_count": 0,
             "active_alarm_codes": [],
+            "mfg_date": "N/A",
+            "cycle_count": None,
+            "rated_capacity_ah": None,
+            "max_current_limit_a": None,
         }
 
     def _empty_cells(self) -> dict[str, Any]:

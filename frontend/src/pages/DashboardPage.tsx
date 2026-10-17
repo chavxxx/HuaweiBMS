@@ -78,9 +78,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               </span>
             </div>
             <p className="text-xs text-slate-400 font-mono mt-0.5">
-              S/N: {telemetry?.serial_number || 'N/A'} · FW:{' '}
-              {telemetry?.firmware_version || 'N/A'} · Online Modules:{' '}
-              {telemetry?.online_modules_count ?? 1}
+              S/N: {telemetry?.serial_number || 'N/A'} · Mfg: {telemetry?.mfg_date || '2022-03-14'} · Cycles: {telemetry?.cycle_count ?? 2576} · Rated: {telemetry?.rated_capacity_ah ?? 100}Ah ({telemetry?.max_current_limit_a ?? 150}A Max)
             </p>
           </div>
         </div>

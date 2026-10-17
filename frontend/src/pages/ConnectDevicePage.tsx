@@ -33,9 +33,9 @@ export const ConnectDevicePage: React.FC<ConnectDevicePageProps> = ({ onRefreshT
   const [selectedPort, setSelectedPort] = useState('')
   const [baudrate, setBaudrate] = useState<number>(9600)
   const [bytesize, setBytesize] = useState<number>(8)
-  const [parity, setParity] = useState<string>('N')
+  const [parity, setParity] = useState<string>('E')
   const [stopbits, setStopbits] = useState<number>(1)
-  const [slaveId, setSlaveId] = useState<number>(1)
+  const [slaveId, setSlaveId] = useState<number>(214)
   const [timeout, setTimeoutVal] = useState<number>(1.0)
   const [interFrameDelay, setInterFrameDelay] = useState<number>(0.02)
   const [rs485Rts, setRs485Rts] = useState<boolean>(false)
@@ -76,12 +76,12 @@ export const ConnectDevicePage: React.FC<ConnectDevicePageProps> = ({ onRefreshT
   const handleApplyEMS4805Preset = () => {
     setBaudrate(9600)
     setBytesize(8)
-    setParity('N')
+    setParity('E')
     setStopbits(1)
     setSlaveId(214)
     setTimeoutVal(1.0)
     setInterFrameDelay(0.02)
-    setSuccessMsg('Applied Huawei EMS-4805B1 Verified Preset: 9600 8-N-1, Slave ID 214 (0xD6)')
+    setSuccessMsg('Applied Huawei ESM-48150B1 / EMS-4805B1 Verified Preset: 9600 8-E-1, Slave ID 214 (0xD6)')
   }
 
   const handleApplyResidentialPreset = () => {
@@ -283,7 +283,7 @@ export const ConnectDevicePage: React.FC<ConnectDevicePageProps> = ({ onRefreshT
               className="px-2.5 py-1 bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-600/60 rounded text-xs text-cyan-300 font-mono font-bold transition flex items-center gap-1.5"
             >
               <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Huawei EMS-4805B1 Preset (Slave 214)</span>
+              <span>Huawei ESM-48150B1 / 4805B1 Preset (9600 8-E-1, Slave 214)</span>
             </button>
             <button
               onClick={handleApplyResidentialPreset}
@@ -340,8 +340,8 @@ export const ConnectDevicePage: React.FC<ConnectDevicePageProps> = ({ onRefreshT
               onChange={(e) => setParity(e.target.value)}
               className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono"
             >
-              <option value="N">None (N) - Huawei Standard</option>
-              <option value="E">Even (E)</option>
+              <option value="E">Even (E) - Huawei ESM-48150B1 / 4805B1 Verified</option>
+              <option value="N">None (N) - LUNA2000 Standard</option>
               <option value="O">Odd (O)</option>
             </select>
           </div>

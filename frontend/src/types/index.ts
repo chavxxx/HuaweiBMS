@@ -29,6 +29,7 @@ export interface TelemetryData {
   serial_number: string
   firmware_version: string
   hardware_rev?: string
+  mfg_date?: string
   is_simulation: boolean
   identification_verified: boolean
   soc: number | null
@@ -43,7 +44,10 @@ export interface TelemetryData {
   online_modules_count: number
   charge_permission: boolean
   discharge_permission: boolean
-  active_alarm_codes: number[]
+  active_alarm_codes: (number | string)[]
+  cycle_count?: number | null
+  rated_capacity_ah?: number | null
+  max_current_limit_a?: number | null
 }
 
 export interface ElectricalData {

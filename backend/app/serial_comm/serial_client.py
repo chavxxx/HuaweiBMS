@@ -18,12 +18,12 @@ class SerialConfig:
     port: str = ""
     baudrate: int = 9600
     bytesize: int = 8
-    parity: str = "N"          # 'N', 'E', 'O'
+    parity: str = "E"          # 'N', 'E', 'O' - Default Even ('E') for Huawei ESM/EMS
     stopbits: float = 1        # 1, 1.5, 2
     timeout: float = 1.0       # Seconds
     inter_frame_delay: float = 0.02  # 20ms inter-frame delay
     retry_count: int = 2
-    slave_id: int = 1
+    slave_id: int = 214        # Default 214 (0xD6) for Huawei ESM-48150B1 / EMS-4805B1
     rs485_rts_control: bool = False
     auto_reconnect: bool = True
     reconnect_backoff_sec: float = 2.0

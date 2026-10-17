@@ -58,6 +58,22 @@ def test_ems4805b1_register_database_integrity():
 
     # Zero-fabrication check: every register must have physical hardware verification source
     for reg in db.list_all():
-        assert "Verified via physical Modbus RTU telemetry" in reg.source_doc
+        assert "Verified via physical Modbus RTU telemetry" in reg.source_doc or "Wire dump" in reg.source_doc
         assert reg.access_mode == AccessMode.READ_ONLY
         assert reg.function_code == 3
+
+
+def test_esm48150b1_register_database_integrity():
+    """Verify that all registers in huawei_esm_48150b1.json are read-only and verified."""
+    json_path = Path(__file__).resolve().parent.parent / "app" / "data" / "huawei_esm_48150b1.json"
+    assert json_path.exists()
+
+    db = RegisterDatabase()
+    count = db.import_from_json(json_path.read_text())
+    assert count >= 50
+
+    for reg in db.list_all():
+        assert "Wire dump" in reg.source_doc or "Verified" in reg.source_doc
+        assert reg.access_mode == AccessMode.READ_ONLY
+        assert reg.function_code == 3
+

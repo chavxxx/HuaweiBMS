@@ -69,20 +69,24 @@ class AppContext:
 
         data_dir = None
         for d in data_candidates:
-            if d.exists() and (d / "huawei_ems_4805b1.json").exists():
+            if d.exists() and ((d / "huawei_esm_48150b1.json").exists() or (d / "huawei_ems_4805b1.json").exists()):
                 data_dir = d
                 break
         if not data_dir:
             data_dir = data_candidates[-1]
 
-        # Load verified Huawei EMS 4805B1 physical registers
-        ems_b1_path = data_dir / "huawei_ems_4805b1.json"
-        if ems_b1_path.exists():
-            self.register_db.import_from_json(ems_b1_path.read_text(encoding="utf-8"))
+        # Load verified Huawei ESM-48150B1 / EMS-4805B1 physical registers
+        esm_b1_path = data_dir / "huawei_esm_48150b1.json"
+        if esm_b1_path.exists():
+            self.register_db.import_from_json(esm_b1_path.read_text(encoding="utf-8"))
         else:
-            ems_a1_path = data_dir / "huawei_ems_4805a1.json"
-            if ems_a1_path.exists():
-                self.register_db.import_from_json(ems_a1_path.read_text(encoding="utf-8"))
+            ems_b1_path = data_dir / "huawei_ems_4805b1.json"
+            if ems_b1_path.exists():
+                self.register_db.import_from_json(ems_b1_path.read_text(encoding="utf-8"))
+            else:
+                ems_a1_path = data_dir / "huawei_ems_4805a1.json"
+                if ems_a1_path.exists():
+                    self.register_db.import_from_json(ems_a1_path.read_text(encoding="utf-8"))
 
         # Also load standard Huawei residential/commercial reference
         luna_path = data_dir / "huawei_luna2000_bms_v3.json"

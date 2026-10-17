@@ -267,10 +267,10 @@ def decode_register_value(
         return scaled, f"{scaled:.2f} {definition.unit}".strip()
 
     elif data_type == DataType.STRING:
-        # Filter printable ASCII bytes, strip null terminators
+        # Filter printable ASCII bytes, strip null terminators and 0xFF padding
         chars = []
         for b in raw_bytes:
-            if b == 0:
+            if b in (0, 0xFF):
                 break
             if 32 <= b <= 126:
                 chars.append(chr(b))
