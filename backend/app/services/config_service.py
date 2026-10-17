@@ -195,18 +195,24 @@ class ConfigService:
             write_success = True
             write_details = "Simulated Modbus Write Function 0x06/0x10 acknowledged by Virtual BMS."
         else:
-            # Hardware write via Serial
-            slave_id = self.serial_client.config.slave_id
-            adapter = self.serial_client.adapter
-            if len(raw_words) == 1:
-                frame = adapter.build_write_single_register(slave_id, address, raw_words[0])
-                resp = self.serial_client.execute_transaction(frame, 0x06, is_write=True)
-            else:
-                frame = adapter.build_write_multiple_registers(slave_id, address, raw_words)
-                resp = self.serial_client.execute_transaction(frame, 0x10, is_write=True)
-
-            write_success = resp.success
-            write_details = "Command acknowledged by hardware BMS" if resp.success else resp.error_message or "Write failed"
+            # Strictly protect physical hardware
+            msg = (
+                "Hardware Safety Lockout: Parameter writes are permanently disabled on physical Huawei ESM Telecom batteries. "
+                "The 47000-range registers belong to residential solar inverters (SUN2000/LUNA2000) and are invalid on ESM telecom modules. "
+                "Physical hardware operates strictly in Read-Only mode to protect live battery cells."
+            )
+            add_step(8, "Hardware Safety Lockout", "FAILED", msg)
+            AuditCRUD.record_entry({
+                "user_role": user_role,
+                "action": "HARDWARE_WRITE_BLOCKED",
+                "parameter_name": reg.name,
+                "parameter_address": address,
+                "previous_value": prev_val,
+                "requested_value": new_value,
+                "status": "REJECTED",
+                "details": msg
+            })
+            return GuardedWriteResult(False, address, reg.name, prev_val, new_value, None, msg, steps)
 
         if not write_success:
             add_step(8, "Transmit Write Frame", "FAILED", write_details)

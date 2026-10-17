@@ -85,16 +85,16 @@ npm run build:installer
 - **Exception Distinctions:** Distinguishes between unsupported register addresses (`0x02 Illegal Data Address`), busy states (`0x06`), and physical communication dropouts.
 - **Unavailable Sentinel Handling:** Decodes Huawei sentinels (`0xFFFF`, `0x7FFF`, `0xFFFFFFFF`) as `N/A` rather than presenting fake zero readings.
 
-### C. The Mandatory 10-Step Guarded Write Workflow
-To protect battery electrochemistry and prevent unauthorized parameter tampering:
-1. **Default Read-Only:** System starts strictly locked in Read-Only Mode.
-2. **Administrator Authentication:** Requires Administrator role to unlock write capability.
-3. **Allowlist Enforcement:** Writes are restricted to verified allowlisted registers (`47081`, `47083`, `47085`, `47086`). Undocumented registers cannot be written.
-4. **Range Bounds Check:** Validates engineering units against manufacturer min/max bounds.
-5. **Before-and-After Diff:** Displays live vs target value side-by-side.
-6. **Operator Confirmation:** Requires explicit confirmation of operational impact.
-7. **Read-Back Verification:** Immediately reads holding registers back from the device after transmission to confirm the battery accepted the change.
-8. **Permanent Audit Log:** Records every write attempt into SQLite `audit_log`.
+### C. Hardware Safety & Strict Read-Only Guard
+To protect physical battery cells, BMS firmware integrity, and avoid writing to undocumented registers:
+1. **ESM Telecom Register Architecture:** Designed specifically for **Huawei ESM Telecom Series (ESM-4805B1 / ESM-48100B1 / ESM-48150B1 BoostLi)** utilizing verified register banks:
+   - **Module 1 / Master Pack:** `0 – 74` (`0x0000 – 0x004A`) — Total terminal voltage, pack current, SOC, SOH, 16 individual cell voltages, and thermal sensors.
+   - **Module 2:** `257 – 278` (`0x0101 – 0x0116`)
+   - **Module 3:** `513 – 540` (`0x0201 – 0x021C`)
+   - **Module 4 & System Parameters:** `768 – 838` (`0x0300 – 0x0346`)
+2. **Solar Inverter (47000-series) Incompatibility:** Registers in the `47081 – 47086` range belong to residential solar inverters (SUN2000/LUNA2000) and are **strictly disabled** for physical ESM telecom batteries to prevent illegal address exceptions or unintended writes.
+3. **Hardware Write Lock:** Physical serial connections are locked in **Read-Only Mode**. The 10-step write workflow is restricted solely to the virtual simulation environment until vendor-certified write commands are provided.
+4. **Permanent Audit Log:** Every connection, configuration inspection, and transaction is logged in SQLite `audit_log`.
 
 ### D. Full Virtual BMS Simulator
 - Provides a high-fidelity virtual battery electrochemistry simulator with realistic SOC drift, voltage curve, 16 series cell voltages, passive balancing, and fault injection.
