@@ -81,6 +81,42 @@ class TelemetryService:
         self._poll_thread = None
         logger.info("Telemetry polling stopped.")
 
+    def reset_telemetry_for_hardware(self) -> None:
+        """Clear all simulated telemetry when switching to physical hardware."""
+        self.use_simulation = False
+        self.last_update_timestamp = 0.0
+        self.latest_telemetry = {
+            "timestamp": 0,
+            "device_model": "Device Connected — Identification Unverified",
+            "serial_number": "N/A",
+            "firmware_version": "N/A",
+            "hardware_rev": "N/A",
+            "is_simulation": False,
+            "identification_verified": False,
+            "soc": None,
+            "soh": None,
+            "total_voltage": None,
+            "current": None,
+            "power": None,
+            "temperature": None,
+            "bms_status": 0,
+            "operating_state": "Awaiting Telemetry",
+            "working_mode": 0,
+            "online_modules_count": 0,
+            "charge_permission": False,
+            "discharge_permission": False,
+            "active_alarm_codes": [],
+        }
+        self.latest_electrical = self._empty_electrical()
+        self.latest_cells = self._empty_cells()
+        self._notify_listeners({
+            "type": "TELEMETRY_UPDATE",
+            "freshness": self.get_freshness_status(),
+            "telemetry": self.latest_telemetry,
+            "electrical": self.latest_electrical,
+            "cells": self.latest_cells
+        })
+
     def get_freshness_status(self) -> dict[str, Any]:
         """Compute telemetry freshness indicators."""
         if not self.is_polling and not self.use_simulation and not self.serial_client.is_connected:

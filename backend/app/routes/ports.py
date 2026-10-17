@@ -63,7 +63,7 @@ def connect_port(req: SerialConnectRequest):
 
     try:
         app_context.serial_client.connect(config)
-        app_context.telemetry_service.use_simulation = False
+        app_context.telemetry_service.reset_telemetry_for_hardware()
         return {
             "success": True,
             "message": f"Successfully connected to hardware on {req.port} ({req.baudrate} 8{req.parity}{req.stopbits}).",
@@ -77,18 +77,21 @@ def connect_port(req: SerialConnectRequest):
 def disconnect_port():
     """Close physical serial port and stop polling."""
     app_context.serial_client.disconnect()
-    app_context.telemetry_service.use_simulation = False
+    app_context.telemetry_service.reset_telemetry_for_hardware()
     return {"success": True, "message": "Serial port disconnected."}
 
 
 @router.post("/toggle-simulation")
 def toggle_simulation(enabled: bool):
     """Explicitly enable or disable virtual simulation mode."""
-    app_context.telemetry_service.use_simulation = enabled
     if enabled:
+        app_context.telemetry_service.use_simulation = True
         app_context.serial_client.disconnect()
+    else:
+        app_context.telemetry_service.reset_telemetry_for_hardware()
+
     return {
         "success": True,
         "is_simulation": app_context.telemetry_service.use_simulation,
-        "message": "Simulation mode activated." if enabled else "Physical hardware mode selected."
+        "message": "Simulation mode activated." if enabled else "Physical hardware mode selected (simulated state cleared)."
     }
