@@ -1,0 +1,21 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# SQLite & Runtime data
+*.db-wal
+*.db-shm
+*.db-journal
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

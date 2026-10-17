@@ -1,0 +1,24 @@
+{
+  "name": "huawei-ems-b1-battery-manager",
+  "version": "1.0.0",
+  "description": "Production-grade Huawei EMS B1 BMS Management and Monitoring Application over USB-to-RS485",
+  "private": true,
+  "scripts": {
+    "start": "bash ./scripts/start.sh",
+    "test": "bash ./scripts/run_tests.sh",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build:frontend": "cd frontend && npm run build",
+    "test:backend": "cd backend && ./venv/bin/pytest tests -v"
+  },
+  "keywords": [
+    "huawei",
+    "bms",
+    "battery-management-system",
+    "modbus-rtu",
+    "rs485",
+    "react",
+    "fastapi"
+  ],
+  "author": "Google DeepMind Advanced Agentic Coding",
+  "license": "MIT"
+}

@@ -1,0 +1,90 @@
+[
+  {
+    "code": 3000,
+    "name": "High Cell Temperature",
+    "severity": "Major",
+    "subsystem": "Thermal Management",
+    "description": "One or more battery cells exceeded the operating temperature threshold (>55°C).",
+    "corrective_action": "Check ambient temperature and ventilation around battery cabinet. Reduce charge/discharge rate until cell temperatures normalize below 45°C."
+  },
+  {
+    "code": 3001,
+    "name": "Low Cell Temperature",
+    "severity": "Warning",
+    "subsystem": "Thermal Management",
+    "description": "Battery cells are below recommended charging temperature (<0°C).",
+    "corrective_action": "Charge current is automatically restricted by BMS until internal heating elements or ambient temperature brings cells above 5°C."
+  },
+  {
+    "code": 3002,
+    "name": "Overvoltage Protection",
+    "severity": "Critical",
+    "subsystem": "Electrical Protection",
+    "description": "Total battery pack voltage or individual cell voltage exceeded safety cutoff threshold.",
+    "corrective_action": "Charging has been automatically interrupted by BMS. Verify grid inverter charge voltage settings and contactor operation."
+  },
+  {
+    "code": 3003,
+    "name": "Undervoltage Protection",
+    "severity": "Critical",
+    "subsystem": "Electrical Protection",
+    "description": "Total battery pack voltage or cell voltage dropped below critical minimum discharge limit.",
+    "corrective_action": "Discharging halted. Reconnect grid power to initiate maintenance trickle charge immediately to prevent permanent cell degradation."
+  },
+  {
+    "code": 3004,
+    "name": "Charge Overcurrent",
+    "severity": "Major",
+    "subsystem": "Power Electronics",
+    "description": "Inflowing charge current exceeded maximum hardware rating.",
+    "corrective_action": "Inspect inverter charge power limits and verify current sensor calibration."
+  },
+  {
+    "code": 3005,
+    "name": "Discharge Overcurrent",
+    "severity": "Major",
+    "subsystem": "Power Electronics",
+    "description": "Outflowing discharge current exceeded maximum continuous discharge threshold.",
+    "corrective_action": "Reduce connected AC load. Verify external circuit breaker and cable sizing."
+  },
+  {
+    "code": 3006,
+    "name": "High Cell Voltage Spread",
+    "severity": "Warning",
+    "subsystem": "Cell Balancing",
+    "description": "Cell voltage delta between highest and lowest cell exceeds 80 mV.",
+    "corrective_action": "Allow battery system to remain in float charging state to complete active/passive cell balancing cycle."
+  },
+  {
+    "code": 3007,
+    "name": "Insulation Resistance Abnormal",
+    "severity": "Critical",
+    "subsystem": "Safety & Isolation",
+    "description": "Isolation resistance between DC high-voltage bus and chassis ground is below 500 kΩ.",
+    "corrective_action": "DANGER: High voltage leak detected. De-energize system, disconnect RS485 and inspect cable insulation and moisture in enclosure."
+  },
+  {
+    "code": 3008,
+    "name": "Internal Communication Fault",
+    "severity": "Major",
+    "subsystem": "Communication",
+    "description": "Master BMS lost internal CAN communication with subordinate module 1 or 2.",
+    "corrective_action": "Check internal inter-module ribbon cabling and grounding between battery packs."
+  },
+  {
+    "code": 3009,
+    "name": "Contactor Drive / Welding Fault",
+    "severity": "Critical",
+    "subsystem": "Switchgear",
+    "description": "Main DC contactor feedback auxiliary contacts do not match commanded drive state.",
+    "corrective_action": "Main contactor may be welded or auxiliary switch failed. Do not attempt manual close. Service technician replacement required."
+  },
+  {
+    "code": 3010,
+    "name": "Precharge Failure",
+    "severity": "Major",
+    "subsystem": "Switchgear",
+    "description": "DC bus voltage failed to reach 90% of pack voltage during precharge timeout.",
+    "corrective_action": "Check precharge resistor and check for external short circuit on DC bus output terminals."
+  }
+]
