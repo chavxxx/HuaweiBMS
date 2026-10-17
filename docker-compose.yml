@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  huawei-bms-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: huawei-ems-b1-manager
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persistent local SQLite history and configuration snapshots
+      - ./data:/app/data
+    # Hardware USB-to-RS485 adapter device pass-through
+    # Uncomment when physical adapter is attached to host machine:
+    # devices:
+    #   - "/dev/ttyUSB0:/dev/ttyUSB0"
+    # privileged: true
+    environment:
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

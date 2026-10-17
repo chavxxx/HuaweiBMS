@@ -135,3 +135,25 @@ def health_check():
         "simulation_mode": app_context.telemetry_service.use_simulation,
         "connected": app_context.serial_client.is_connected
     }
+
+
+# Mount production frontend build if present
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+DIST_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+if DIST_DIR.exists() and (DIST_DIR / "index.html").exists():
+    assets_dir = DIST_DIR / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # Do not intercept API or WebSocket routes
+        if full_path.startswith("api") or full_path.startswith("ws"):
+            return FileResponse(DIST_DIR / "index.html")
+        file_path = DIST_DIR / full_path
+        if file_path.exists() and file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(DIST_DIR / "index.html")

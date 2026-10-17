@@ -1,0 +1,19 @@
+[Unit]
+Description=Huawei EMS B1 Battery BMS Manager Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/huawei-ems-b1-manager
+Environment="PYTHONPATH=/opt/huawei-ems-b1-manager/backend"
+ExecStart=/opt/huawei-ems-b1-manager/backend/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=3
+
+# Industrial RS485 & resource protections
+SupplementaryGroups=dialout
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
