@@ -37,7 +37,8 @@ class AppContext:
         self.config_service = ConfigService(
             serial_client=self.serial_client,
             register_db=self.register_db,
-            simulator=self.simulator
+            simulator=self.simulator,
+            telemetry_service=self.telemetry_service
         )
         self.alarm_service = AlarmService()
         self.report_service = ReportService()
@@ -76,22 +77,27 @@ class AppContext:
             data_dir = data_candidates[-1]
 
         # Load verified Huawei ESM-48150B1 / EMS-4805B1 physical registers
+        loaded_model = False
         esm_b1_path = data_dir / "huawei_esm_48150b1.json"
         if esm_b1_path.exists():
             self.register_db.import_from_json(esm_b1_path.read_text(encoding="utf-8"))
+            loaded_model = True
         else:
             ems_b1_path = data_dir / "huawei_ems_4805b1.json"
             if ems_b1_path.exists():
                 self.register_db.import_from_json(ems_b1_path.read_text(encoding="utf-8"))
+                loaded_model = True
             else:
                 ems_a1_path = data_dir / "huawei_ems_4805a1.json"
                 if ems_a1_path.exists():
                     self.register_db.import_from_json(ems_a1_path.read_text(encoding="utf-8"))
+                    loaded_model = True
 
-        # Also load standard Huawei residential/commercial reference
-        luna_path = data_dir / "huawei_luna2000_bms_v3.json"
-        if luna_path.exists():
-            self.register_db.import_from_json(luna_path.read_text(encoding="utf-8"))
+        # Only load LUNA2000 reference if no ESM / EMS profile was loaded
+        if not loaded_model:
+            luna_path = data_dir / "huawei_luna2000_bms_v3.json"
+            if luna_path.exists():
+                self.register_db.import_from_json(luna_path.read_text(encoding="utf-8"))
 
 
 # Global singleton instance

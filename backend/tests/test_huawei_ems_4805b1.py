@@ -130,3 +130,91 @@ def test_battery_unlock_and_presets_service():
     assert sim.parameters[4109] == 500
     assert sim.parameters[4107] == 1000
 
+
+def test_esm_power_and_cutoff_telemetry_grounding():
+    """Verify that physical ESM-48150B1 hardware eliminates Read Error and provides true physical values."""
+    from unittest.mock import MagicMock
+    from app.protocol.modbus_rtu import ProtocolResponse
+    from app.serial_comm.serial_client import SerialClient
+    from app.services.config_service import ConfigService
+    from app.services.telemetry_service import TelemetryService
+    from app.simulator.bms_simulator import BMSSimulator
+
+    json_path = Path(__file__).resolve().parent.parent / "app" / "data" / "huawei_esm_48150b1.json"
+    db = RegisterDatabase()
+    db.import_from_json(json_path.read_text())
+
+    sim = BMSSimulator()
+    serial_client = SerialClient()
+    telemetry_svc = TelemetryService(serial_client, db, sim)
+    
+    # Populate live physical telemetry matching user's real ESM-48150B1 hardware
+    telemetry_svc.latest_telemetry = {
+        "total_voltage": 53.94,
+        "rated_capacity_ah": 150,
+        "max_current_limit_a": 150,
+    }
+
+    config_svc = ConfigService(serial_client, db, sim, telemetry_service=telemetry_svc)
+
+    # Mock physical Modbus transaction where 47081-47086 fail (Exception 0x02 Illegal Address on ESM),
+    # but base registers (Reg 4109 = 150 raw -> 0.150C, Reg 4107 = 680 raw -> 0.680C) succeed.
+    def mock_transaction(frame, expected_func, is_write=False):
+        addr = (frame[2] << 8) | frame[3]
+        if addr in (47081, 47083, 47085, 47086, 41015, 47001):
+            # Battery responds with Illegal Address for high ESS registers
+            return ProtocolResponse(success=False, function_code=expected_func, is_exception=True, exception_code=0x02, error_message="Illegal Data Address")
+        elif addr == 4109:
+            # 0.150 C charge limit
+            return ProtocolResponse(success=True, function_code=0x03, values=[150])
+        elif addr == 4107:
+            # 0.680 C discharge limit
+            return ProtocolResponse(success=True, function_code=0x03, values=[680])
+        elif addr in (4096, 4097, 4098, 4099, 4100, 4101):
+            # RTC clock
+            return ProtocolResponse(success=True, function_code=0x03, values=[2026])
+        elif addr in (4376, 4377, 4111, 4112, 4123):
+            return ProtocolResponse(success=True, function_code=0x03, values=[0])
+        elif addr == 69:
+            return ProtocolResponse(success=True, function_code=0x03, values=[2576])
+        elif addr == 259:
+            return ProtocolResponse(success=True, function_code=0x03, values=[150])
+        elif addr == 263:
+            return ProtocolResponse(success=True, function_code=0x03, values=[150])
+        return ProtocolResponse(success=False, function_code=expected_func, error_message="Unknown")
+
+    serial_client.execute_transaction = MagicMock(side_effect=mock_transaction)
+
+    # 1. Read all parameters for physical hardware (is_simulation=False)
+    params = config_svc.read_all_parameters(is_simulation=False)
+    assert len(params) >= 17
+
+    # 2. Verify ZERO "Read Error" in any parameter
+    errors = [p for p in params if p["current_formatted"] == "Read Error"]
+    assert len(errors) == 0, f"Found parameters with Read Error: {errors}"
+
+    # 3. Verify true physical derivation of Max Charge Power (Reg 47081)
+    # P_charge = 53.94V * (0.150C * 150Ah) = 1213.65 W
+    p_charge = next(p for p in params if p["address"] == 47081)
+    assert abs(p_charge["current_raw"] - 1213.65) < 0.1
+    assert "W" in p_charge["current_formatted"]
+    assert "0.15C" in p_charge["current_formatted"]
+
+    # 4. Verify true physical derivation of Max Discharge Power (Reg 47083)
+    # P_discharge = 53.94V * (0.680C * 150Ah) = 5501.88 W
+    p_discharge = next(p for p in params if p["address"] == 47083)
+    assert abs(p_discharge["current_raw"] - 5501.88) < 0.1
+    assert "5501.9 W" in p_discharge["current_formatted"]
+    assert "0.68C" in p_discharge["current_formatted"]
+
+    # 5. Verify End-of-Discharge Cutoff (Reg 47085)
+    soc_cutoff = next(p for p in params if p["address"] == 47085)
+    assert soc_cutoff["current_raw"] == 0.0
+    assert "44.0V LVD Hardware Cutoff" in soc_cutoff["current_formatted"]
+
+    # 6. Verify End-of-Charge Cutoff (Reg 47086)
+    soc_full = next(p for p in params if p["address"] == 47086)
+    assert soc_full["current_raw"] == 100.0
+    assert "56.8V HVD Absorption Cutoff" in soc_full["current_formatted"]
+
+

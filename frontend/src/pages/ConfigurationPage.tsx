@@ -475,8 +475,20 @@ export const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                             {p.description}
                           </div>
                         </td>
-                        <td className="py-2.5 px-3 font-bold text-slate-100">
-                          {p.current_formatted || 'N/A'}
+                        <td className="py-2.5 px-3 font-bold">
+                          {p.current_formatted === 'Read Error' ? (
+                            <span className="text-rose-400 bg-rose-950/60 border border-rose-800 rounded px-1.5 py-0.5 text-xs">
+                              Read Error
+                            </span>
+                          ) : p.current_formatted?.includes('live') ? (
+                            <span className="text-cyan-300">
+                              {p.current_formatted}
+                            </span>
+                          ) : (
+                            <span className="text-slate-100">
+                              {p.current_formatted || 'N/A'}
+                            </span>
+                          )}
                         </td>
                         <td className="py-2.5 px-3 text-slate-400">
                           {p.min_value !== null
