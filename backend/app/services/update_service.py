@@ -130,18 +130,18 @@ class UpdateService:
                 if e.code != 404:
                     logger.warning("Releases API error: %s", e)
 
-            # If no release tag found, check tags list
-            if remote_version == self.current_version:
-                tags_req = urllib.request.Request(f"{api_base}/tags", headers=headers)
-                try:
-                    with urllib.request.urlopen(tags_req, timeout=5) as resp:
-                        if resp.status == 200:
-                            tags_data = json.loads(resp.read().decode("utf-8"))
-                            if tags_data and len(tags_data) > 0:
-                                remote_version = tags_data[0].get("name", remote_version)
-                                remote_sha = tags_data[0].get("commit", {}).get("sha", remote_sha)
-                except Exception as e:
-                    logger.warning("Tags API error: %s", e)
+            # Check tags list to get newest tag (releases/latest only updates when GitHub Release is drafted)
+            tags_req = urllib.request.Request(f"{api_base}/tags", headers=headers)
+            try:
+                with urllib.request.urlopen(tags_req, timeout=5) as resp:
+                    if resp.status == 200:
+                        tags_data = json.loads(resp.read().decode("utf-8"))
+                        if tags_data and len(tags_data) > 0:
+                            latest_tag = tags_data[0].get("name", "")
+                            if parse_version_tuple(latest_tag) > parse_version_tuple(remote_version):
+                                remote_version = latest_tag
+            except Exception as e:
+                logger.warning("Tags API error: %s", e)
 
             # Check latest commit on main branch
             commit_req = urllib.request.Request(f"{api_base}/commits/main", headers=headers)
@@ -183,7 +183,22 @@ class UpdateService:
         if remote_tuple > curr_tuple:
             has_update = True
         elif local_info["commit_sha"] and remote_sha and len(local_info["commit_sha"]) >= 7 and len(remote_sha) >= 7:
-            has_update = local_info["commit_sha"][:7] != remote_sha[:7]
+            if local_info["commit_sha"][:7] != remote_sha[:7]:
+                if local_info["is_git"]:
+                    try:
+                        # Count how many commits remote is ahead of local
+                        ahead = subprocess.check_output(
+                            ["git", "rev-list", "--count", f"HEAD..{remote_sha}"],
+                            cwd=str(self.project_root),
+                            text=True,
+                            stderr=subprocess.DEVNULL
+                        ).strip()
+                        has_update = int(ahead) > 0
+                    except Exception:
+                        has_update = True
+                else:
+                    has_update = True
+
 
         result = {
             "current_version": self.current_version,
