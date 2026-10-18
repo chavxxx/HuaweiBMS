@@ -5,10 +5,12 @@ import type {
   ElectricalData,
   FreshnessStatus,
   ParameterItem,
+  PresetItem,
   ProtocolFrame,
   SerialPortInfo,
   SnapshotItem,
   TelemetryData,
+  UnlockBatteryResult,
 } from '../types'
 
 const BASE_URL = ''
@@ -123,6 +125,46 @@ export const api = {
     const res = await fetch(`${BASE_URL}/api/config/snapshots/compare?snapshot_id=${snapshotId}`, {
       method: 'POST',
     })
+    return res.json()
+  },
+
+  async getPresets(): Promise<PresetItem[]> {
+    const res = await fetch(`${BASE_URL}/api/config/presets`)
+    const data = await res.json()
+    return data.presets || []
+  },
+
+  async applyPreset(presetId: string, userRole: string): Promise<any> {
+    const res = await fetch(`${BASE_URL}/api/config/presets/apply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ preset_id: presetId, user_role: userRole, operator_confirmed: true }),
+    })
+    if (!res.ok) {
+      const err = await res.json()
+      throw new Error(err.detail || 'Failed to apply preset')
+    }
+    return res.json()
+  },
+
+  async unlockBattery(payload: {
+    user_role: string
+    sync_clock?: boolean
+    restore_charge_rate?: number
+  }): Promise<UnlockBatteryResult> {
+    const res = await fetch(`${BASE_URL}/api/config/unlock-battery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_role: payload.user_role,
+        sync_clock: payload.sync_clock ?? true,
+        restore_charge_rate: payload.restore_charge_rate ?? 0.500,
+      }),
+    })
+    if (!res.ok) {
+      const err = await res.json()
+      throw new Error(err.detail || 'Battery unlock sequence failed')
+    }
     return res.json()
   },
 

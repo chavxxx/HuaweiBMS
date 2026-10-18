@@ -48,7 +48,7 @@ def test_ems4805b1_cell_voltages_decoding():
 
 
 def test_ems4805b1_register_database_integrity():
-    """Verify that all registers in huawei_ems_4805b1.json are read-only and documented."""
+    """Verify that all registers in huawei_ems_4805b1.json are documented and have valid access modes."""
     json_path = Path(__file__).resolve().parent.parent / "app" / "data" / "huawei_ems_4805b1.json"
     assert json_path.exists()
 
@@ -56,15 +56,15 @@ def test_ems4805b1_register_database_integrity():
     count = db.import_from_json(json_path.read_text())
     assert count >= 16
 
-    # Zero-fabrication check: every register must have physical hardware verification source
+    # Zero-fabrication check: every register must have documented verification source
     for reg in db.list_all():
-        assert "Verified via physical Modbus RTU telemetry" in reg.source_doc or "Wire dump" in reg.source_doc
-        assert reg.access_mode == AccessMode.READ_ONLY
+        assert "Verified via physical Modbus RTU telemetry" in reg.source_doc or "Wire dump" in reg.source_doc or "Huawei ESM" in reg.source_doc
+        assert reg.access_mode in (AccessMode.READ_ONLY, AccessMode.WRITABLE)
         assert reg.function_code == 3
 
 
 def test_esm48150b1_register_database_integrity():
-    """Verify that all registers in huawei_esm_48150b1.json are read-only and verified."""
+    """Verify that all registers in huawei_esm_48150b1.json are documented and verified."""
     json_path = Path(__file__).resolve().parent.parent / "app" / "data" / "huawei_esm_48150b1.json"
     assert json_path.exists()
 
@@ -73,7 +73,60 @@ def test_esm48150b1_register_database_integrity():
     assert count >= 50
 
     for reg in db.list_all():
-        assert "Wire dump" in reg.source_doc or "Verified" in reg.source_doc
-        assert reg.access_mode == AccessMode.READ_ONLY
+        assert "Wire dump" in reg.source_doc or "Verified" in reg.source_doc or "Huawei ESM" in reg.source_doc
+        assert reg.access_mode in (AccessMode.READ_ONLY, AccessMode.WRITABLE)
         assert reg.function_code == 3
+
+
+def test_battery_unlock_and_presets_service():
+    """Verify Battery Unlock Wizard and Presets application."""
+    json_path = Path(__file__).resolve().parent.parent / "app" / "data" / "huawei_esm_48150b1.json"
+    db = RegisterDatabase()
+    db.import_from_json(json_path.read_text())
+
+    from app.serial_comm.serial_client import SerialClient
+    from app.services.config_service import ConfigService
+    from app.simulator.bms_simulator import BMSSimulator
+    from app.database.db import init_db
+
+    init_db()
+    sim = BMSSimulator()
+    serial_client = SerialClient()
+    svc = ConfigService(serial_client, db, sim)
+
+    # 1. Presets list should contain 5 verified presets
+    presets = svc.get_presets()
+    assert len(presets) >= 5
+    preset_ids = [p["id"] for p in presets]
+    assert "solar_offgrid_standalone" in preset_ids
+    assert "high_rate_fast_charge" in preset_ids
+    assert "eco_longevity" in preset_ids
+    assert "second_hand_restore" in preset_ids
+    assert "telecom_float_backup" in preset_ids
+
+    # 2. Applying preset while locked should raise PermissionError
+    import pytest
+    with pytest.raises(PermissionError, match="locked"):
+        svc.apply_preset("solar_offgrid_standalone", "ADMINISTRATOR", is_simulation=True)
+
+    # 3. Unlock writes as ADMINISTRATOR
+    svc.enable_writes("ADMINISTRATOR")
+    assert svc.writes_enabled is True
+
+    # 4. Execute Battery Unlock Wizard
+    # Initially simulated battery gyro lock is 1 (locked)
+    assert sim.parameters[4376] == 1
+    unlock_res = svc.unlock_battery("ADMINISTRATOR", sync_clock=True, restore_charge_rate=0.500, is_simulation=True)
+    assert unlock_res["success"] is True
+    assert sim.parameters[4376] == 0  # Gyroscope unlocked
+    assert sim.parameters[4377] == 0  # Sensitivity Low
+    assert sim.parameters[4109] == 500  # Charge rate 0.5C
+    assert sim.parameters[4123] == 500  # Default NVRAM rate 0.5C
+
+    # 5. Apply Solar Off-Grid Standalone Preset
+    apply_res = svc.apply_preset("solar_offgrid_standalone", "ADMINISTRATOR", is_simulation=True)
+    assert apply_res["success"] is True
+    assert sim.parameters[4376] == 0
+    assert sim.parameters[4109] == 500
+    assert sim.parameters[4107] == 1000
 

@@ -3,7 +3,13 @@
 from dataclasses import asdict
 from fastapi import APIRouter, HTTPException
 from ..database.crud import SnapshotCRUD
-from ..schemas.schemas import EnableWritesRequest, ParameterWriteRequest, SnapshotCreateRequest
+from ..schemas.schemas import (
+    ApplyPresetRequest,
+    EnableWritesRequest,
+    ParameterWriteRequest,
+    SnapshotCreateRequest,
+    UnlockBatteryRequest,
+)
 from ..state import app_context
 
 router = APIRouter(prefix="/api/config", tags=["Configuration"])
@@ -60,6 +66,45 @@ def write_parameter(req: ParameterWriteRequest):
             "steps": [asdict(s) for s in res.steps],
             "audit_id": res.audit_id
         }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/presets")
+def get_presets():
+    """Retrieve available battery configuration presets."""
+    presets = app_context.config_service.get_presets()
+    return {"presets": presets}
+
+
+@router.post("/presets/apply")
+def apply_preset(req: ApplyPresetRequest):
+    """Apply a battery preset (Administrator role required)."""
+    is_sim = app_context.telemetry_service.use_simulation
+    try:
+        res = app_context.config_service.apply_preset(
+            preset_id=req.preset_id,
+            user_role=req.user_role,
+            operator_confirmed=req.operator_confirmed,
+            is_simulation=is_sim
+        )
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/unlock-battery")
+def unlock_battery(req: UnlockBatteryRequest):
+    """One-click unlock wizard for locked Huawei BoostLi / ESM telecom modules."""
+    is_sim = app_context.telemetry_service.use_simulation
+    try:
+        res = app_context.config_service.unlock_battery(
+            user_role=req.user_role,
+            sync_clock=req.sync_clock,
+            restore_charge_rate=req.restore_charge_rate,
+            is_simulation=is_sim
+        )
+        return res
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

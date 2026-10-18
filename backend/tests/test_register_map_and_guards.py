@@ -158,3 +158,42 @@ def test_guarded_write_workflow(reg_db):
     assert res.audit_id is not None
     trail = AuditCRUD.get_audit_trail(limit=5)
     assert any(t["id"] == res.audit_id for t in trail)
+
+
+def test_guarded_write_physical_execution(reg_db):
+    """Verify physical Modbus RTU write transmission (FC 0x06) and read-back verification."""
+    from unittest.mock import MagicMock
+    from app.protocol.modbus_rtu import ProtocolResponse
+
+    init_db()
+    simulator = BMSSimulator()
+    serial_client = SerialClient()
+    config_svc = ConfigService(serial_client, reg_db, simulator)
+    config_svc.enable_writes("ADMINISTRATOR")
+
+    # Mock execute_transaction for physical hardware write (FC 0x06) and read-back (FC 0x03)
+    def mock_transaction(frame, expected_func, is_write=False):
+        if expected_func == 0x06:
+            # Echo response for FC 0x06
+            return ProtocolResponse(success=True, function_code=0x06, values=[47085, 150])
+        elif expected_func == 0x03:
+            # Read-back response: 15.0% => raw 150
+            return ProtocolResponse(success=True, function_code=0x03, values=[150])
+        return ProtocolResponse(success=False, error_message="Unexpected function")
+
+    serial_client.execute_transaction = MagicMock(side_effect=mock_transaction)
+
+    res = config_svc.execute_guarded_write(
+        address=47085,
+        new_value=15.0,
+        user_role="ADMINISTRATOR",
+        operator_confirmed=True,
+        is_simulation=False  # Physical execution
+    )
+
+    assert res.success is True
+    assert res.verified_value == 15.0
+    assert len(res.steps) == 10
+    assert all(s.status == "COMPLETED" for s in res.steps)
+    # Step 1 Read (FC 0x03) + Step 8 Write (FC 0x06) + Step 9 Read-Back (FC 0x03)
+    assert serial_client.execute_transaction.call_count == 3

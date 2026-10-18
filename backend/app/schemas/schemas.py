@@ -30,6 +30,18 @@ class EnableWritesRequest(BaseModel):
     confirmation_key: Optional[str] = None
 
 
+class ApplyPresetRequest(BaseModel):
+    preset_id: str = Field(..., description="ID of preset to apply")
+    user_role: str = "ADMINISTRATOR"
+    operator_confirmed: bool = True
+
+
+class UnlockBatteryRequest(BaseModel):
+    user_role: str = "ADMINISTRATOR"
+    sync_clock: bool = True
+    restore_charge_rate: float = Field(0.500, description="Charge limit coefficient in C (0.05-1.05)")
+
+
 class SnapshotCreateRequest(BaseModel):
     snapshot_name: str
     notes: Optional[str] = ""

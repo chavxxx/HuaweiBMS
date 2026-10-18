@@ -57,6 +57,21 @@ class BMSSimulator:
 
         # Writable Parameters (Holding Registers)
         self.parameters = {
+            # Verified Huawei BoostLi / ESM telecom parameters
+            4376: 1,      # Gyroscope Anti-Theft Lock (1 = Locked by default on decommissioned module)
+            4377: 1,      # Gyroscope Sensitivity (1 = Med)
+            4109: 500,    # Active Charge Limit Coefficient (500 = 0.500C)
+            4123: 500,    # Default Charge Limit Coefficient (500 = 0.500C)
+            4107: 1000,   # Discharge Limit Coefficient (1000 = 1.000C)
+            4111: 0,      # DO1 Alarm Action (0 = Close)
+            4112: 0,      # DO2 Alarm Action (0 = Close)
+            4096: 2026,   # Clock Year
+            4097: 10,     # Clock Month
+            4098: 18,     # Clock Day
+            4099: 12,     # Clock Hour
+            4100: 0,      # Clock Minute
+            4101: 0,      # Clock Second
+            # ESS legacy parameters
             47081: 5000,   # Grid Max Charge Power Setting (W)
             47083: 5000,   # Grid Max Discharge Power Setting (W)
             47085: 50,     # End-of-Discharge SOC Cutoff (0.1% -> 5.0%)
@@ -280,8 +295,15 @@ class BMSSimulator:
 
     def _write_register_word(self, addr: int, val: int) -> bool:
         """Handle writing to parameters, with bounds verification."""
-        if addr in (47081, 47083, 47085, 47086):
+        if addr in (
+            47081, 47083, 47085, 47086,
+            4376, 4377, 4109, 4123, 4107, 4111, 4112,
+            4096, 4097, 4098, 4099, 4100, 4101,
+        ):
             self.parameters[addr] = val
+            if addr == 4376 and val == 0:
+                # Disabling gyroscope clears displacement theft alarm
+                self.clear_alarm(32)
             return True
         elif addr in (47082, 47084):
             # Combine 32-bit value

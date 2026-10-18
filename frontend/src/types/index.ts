@@ -186,3 +186,36 @@ export interface SnapshotItem {
   notes: string
   parameters?: Record<string, any>
 }
+
+export interface PresetParameter {
+  address: number
+  name: string
+  value: number
+  unit: string
+  description: string
+}
+
+export interface PresetItem {
+  id: string
+  name: string
+  badge: string
+  description: string
+  target_models: string[]
+  parameters: PresetParameter[]
+}
+
+export interface UnlockOperationResult {
+  address: number
+  operation: string
+  target_value: number
+  verified_value: any
+  success: boolean
+  message: string
+}
+
+export interface UnlockBatteryResult {
+  success: boolean
+  operations: UnlockOperationResult[]
+  audit_id: number
+  message: string
+}
