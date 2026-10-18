@@ -219,3 +219,31 @@ export interface UnlockBatteryResult {
   audit_id: number
   message: string
 }
+
+export interface UpdateCheckResult {
+  current_version: string
+  latest_version: string
+  current_commit: string
+  latest_commit: string
+  latest_commit_message: string
+  latest_commit_date: string
+  release_notes: string
+  has_update: boolean
+  repo_url: string
+  releases_url: string
+  last_checked: number
+  is_git_repo: boolean
+  branch: string
+  error: string | null
+  status: 'UP_TO_DATE' | 'UPDATE_AVAILABLE' | 'ERROR'
+}
+
+export interface UpdatePullResult {
+  success: boolean
+  previous_commit: string
+  updated_commit: string
+  stdout: string
+  message: string
+  audit_id: number
+}
+

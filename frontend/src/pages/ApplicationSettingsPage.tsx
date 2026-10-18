@@ -3,13 +3,18 @@ import {
   Bell,
   CheckCircle2,
   Database,
+  ExternalLink,
+  GitBranch,
   Moon,
+  RefreshCw,
   Save,
   Settings,
   ShieldAlert,
   Sun,
 } from 'lucide-react'
 import { api } from '../services/api'
+import type { UpdateCheckResult } from '../types'
+import { SoftwareUpdateModal } from '../components/SoftwareUpdateModal'
 
 export const ApplicationSettingsPage: React.FC = () => {
   const [settings, setSettings] = useState<any>({
@@ -22,6 +27,21 @@ export const ApplicationSettingsPage: React.FC = () => {
   })
   const [saving, setSaving] = useState(false)
   const [savedMsg, setSavedMsg] = useState<string | null>(null)
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false)
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null)
+  const [checkingUpdates, setCheckingUpdates] = useState(false)
+
+  const fetchUpdates = async () => {
+    setCheckingUpdates(true)
+    try {
+      const res = await api.checkUpdates()
+      setUpdateInfo(res)
+    } catch {
+      // ignore
+    } finally {
+      setCheckingUpdates(false)
+    }
+  }
 
   useEffect(() => {
     api.getSettings().then((s) => {
@@ -207,6 +227,60 @@ export const ApplicationSettingsPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Software Version & Git Repository Card */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4 font-mono text-xs">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-200">
+            <GitBranch className="w-4 h-4 text-cyan-400" />
+            <span>Software Version & Git Repository</span>
+          </div>
+          <span className="text-[11px] bg-cyan-950 text-cyan-300 border border-cyan-800 px-2 py-0.5 rounded font-bold">
+            v1.0.5
+          </span>
+        </div>
+
+        <p className="text-slate-400 font-sans text-xs">
+          Synchronize HuaweiBMS with the latest updates, bug fixes, and battery hardware presets directly from the GitHub repository.
+        </p>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+          <div className="text-slate-400 text-xs font-mono">
+            Repository:{' '}
+            <a
+              href="https://github.com/chavxxx/HuaweiBMS"
+              target="_blank"
+              rel="noreferrer"
+              className="text-cyan-400 underline hover:text-cyan-300 ml-1 inline-flex items-center gap-1"
+            >
+              github.com/chavxxx/HuaweiBMS
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+
+          <button
+            onClick={() => {
+              setIsUpdateModalOpen(true)
+              fetchUpdates()
+            }}
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-white rounded-lg text-xs font-bold font-mono transition flex items-center gap-2 border border-cyan-800/60"
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Check for Updates</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Software Update Modal */}
+      <SoftwareUpdateModal
+        isOpen={isUpdateModalOpen}
+        onClose={() => setIsUpdateModalOpen(false)}
+        userRole="ADMINISTRATOR"
+        updateInfo={updateInfo}
+        loading={checkingUpdates}
+        onRefreshCheck={fetchUpdates}
+      />
     </div>
   )
 }
+

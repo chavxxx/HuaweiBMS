@@ -10,6 +10,7 @@ from .services.alarm_service import AlarmService
 from .services.config_service import ConfigService
 from .services.report_service import ReportService
 from .services.telemetry_service import TelemetryService
+from .services.update_service import UpdateService
 from .simulator.bms_simulator import BMSSimulator
 
 
@@ -42,6 +43,7 @@ class AppContext:
         )
         self.alarm_service = AlarmService()
         self.report_service = ReportService()
+        self.update_service = UpdateService()
 
         # Default settings
         self.settings = {

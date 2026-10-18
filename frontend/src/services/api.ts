@@ -11,6 +11,8 @@ import type {
   SnapshotItem,
   TelemetryData,
   UnlockBatteryResult,
+  UpdateCheckResult,
+  UpdatePullResult,
 } from '../types'
 
 const BASE_URL = ''
@@ -275,4 +277,28 @@ export const api = {
     })
     return res.json()
   },
+
+  // Software Updates & Git Sync
+  async checkUpdates(): Promise<UpdateCheckResult> {
+    const res = await fetch(`${BASE_URL}/api/updates/check`)
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || 'Failed to check for updates')
+    }
+    return res.json()
+  },
+
+  async pullUpdate(userRole: string = 'ADMINISTRATOR'): Promise<UpdatePullResult> {
+    const res = await fetch(`${BASE_URL}/api/updates/pull`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_role: userRole }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || 'Failed to pull update from git')
+    }
+    return res.json()
+  },
 }
+

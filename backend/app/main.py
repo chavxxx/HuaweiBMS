@@ -16,6 +16,7 @@ from .routes import (
     registers,
     settings,
     telemetry,
+    updates,
 )
 from .state import app_context
 
@@ -61,6 +62,7 @@ app.include_router(registers.router)
 app.include_router(history.router)
 app.include_router(audit.router)
 app.include_router(settings.router)
+app.include_router(updates.router)
 
 
 # WebSocket for high-frequency live telemetry and protocol stream

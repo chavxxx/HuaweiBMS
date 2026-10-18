@@ -1,16 +1,19 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   Activity,
   AlertTriangle,
   BatteryCharging,
   Cpu,
+  GitBranch,
   Layers,
   Radio,
   Shield,
   Wifi,
   WifiOff,
 } from 'lucide-react'
-import type { FreshnessStatus, TelemetryData, UserRole } from '../types'
+import { api } from '../services/api'
+import type { FreshnessStatus, TelemetryData, UpdateCheckResult, UserRole } from '../types'
+import { SoftwareUpdateModal } from './SoftwareUpdateModal'
 
 interface HeaderProps {
   telemetry: TelemetryData | null
@@ -31,6 +34,26 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const isSim = telemetry?.is_simulation ?? true
   const activeAlarmCount = telemetry?.active_alarm_codes?.length ?? 0
+
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false)
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null)
+  const [checkingUpdates, setCheckingUpdates] = useState(false)
+
+  const fetchUpdates = async () => {
+    setCheckingUpdates(true)
+    try {
+      const res = await api.checkUpdates()
+      setUpdateInfo(res)
+    } catch {
+      // silently ignore background check error
+    } finally {
+      setCheckingUpdates(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchUpdates()
+  }, [])
 
   const getFreshnessBadge = () => {
     if (!freshness) return null
@@ -120,6 +143,28 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         )}
 
+        {/* Update Button */}
+        <button
+          onClick={() => {
+            setIsUpdateModalOpen(true)
+            if (!updateInfo) {
+              fetchUpdates()
+            }
+          }}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono font-medium transition border ${
+            updateInfo?.has_update
+              ? 'bg-cyan-950/90 text-cyan-300 border-cyan-500/80 hover:bg-cyan-900 shadow-sm shadow-cyan-500/20'
+              : 'bg-slate-800/90 hover:bg-slate-700/90 text-slate-300 border-slate-700/80'
+          }`}
+          title="Check GitHub repository (chavxxx/HuaweiBMS) for software updates"
+        >
+          <GitBranch className="w-3.5 h-3.5 text-cyan-400" />
+          <span className="hidden sm:inline">Updates</span>
+          {updateInfo?.has_update && (
+            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+          )}
+        </button>
+
         {/* Role Selector */}
         <div className="flex items-center gap-2 bg-slate-800/90 border border-slate-700/80 rounded-md px-2.5 py-1">
           <Shield className="w-3.5 h-3.5 text-cyan-400" />
@@ -141,6 +186,16 @@ export const Header: React.FC<HeaderProps> = ({
           </select>
         </div>
       </div>
+
+      {/* Software Update Modal */}
+      <SoftwareUpdateModal
+        isOpen={isUpdateModalOpen}
+        onClose={() => setIsUpdateModalOpen(false)}
+        userRole={userRole}
+        updateInfo={updateInfo}
+        loading={checkingUpdates}
+        onRefreshCheck={fetchUpdates}
+      />
     </header>
   )
 }
