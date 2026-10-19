@@ -236,7 +236,7 @@ export const ApplicationSettingsPage: React.FC = () => {
             <span>Software Version & Git Repository</span>
           </div>
           <span className="text-[11px] bg-cyan-950 text-cyan-300 border border-cyan-800 px-2 py-0.5 rounded font-bold">
-            v1.0.6
+            v1.0.7
           </span>
         </div>
 

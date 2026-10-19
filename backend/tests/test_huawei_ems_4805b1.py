@@ -175,12 +175,14 @@ def test_esm_power_and_cutoff_telemetry_grounding():
             return ProtocolResponse(success=True, function_code=0x03, values=[2026])
         elif addr in (4376, 4377, 4111, 4112, 4123):
             return ProtocolResponse(success=True, function_code=0x03, values=[0])
-        elif addr == 69:
+        elif addr in (67, 69):
             return ProtocolResponse(success=True, function_code=0x03, values=[2576])
         elif addr == 259:
             return ProtocolResponse(success=True, function_code=0x03, values=[150])
         elif addr == 263:
             return ProtocolResponse(success=True, function_code=0x03, values=[150])
+        elif addr == 271:
+            return ProtocolResponse(success=True, function_code=0x03, values=[16])
         return ProtocolResponse(success=False, function_code=expected_func, error_message="Unknown")
 
     serial_client.execute_transaction = MagicMock(side_effect=mock_transaction)
@@ -216,5 +218,87 @@ def test_esm_power_and_cutoff_telemetry_grounding():
     soc_full = next(p for p in params if p["address"] == 47086)
     assert soc_full["current_raw"] == 100.0
     assert "56.8V HVD Absorption Cutoff" in soc_full["current_formatted"]
+
+
+def test_hardware_sentinel_filtering_and_11_cell_pack():
+    """Verify that 65535 and -999 sentinels from 11-channel batteries (new_low.txt) are filtered."""
+    from unittest.mock import MagicMock
+    from app.protocol.modbus_rtu import ProtocolResponse
+    from app.serial_comm.serial_client import SerialClient
+    from app.services.telemetry_service import TelemetryService
+    from app.simulator.bms_simulator import BMSSimulator
+
+    db = RegisterDatabase()
+    sim = BMSSimulator()
+    serial_client = SerialClient()
+    serial_client.is_connected = True
+    telemetry_svc = TelemetryService(serial_client, db, sim)
+
+    # Values matching new_low.txt captured from physical battery
+    # Regs 18..33: 11 active sensors (28-30°C) + 5 sentinels (64537 / -999)
+    temps_raw = [29, 28, 28, 28, 28, 28, 28, 30, 28, 28, 29, 64537, 64537, 64537, 64537, 64537]
+    # Regs 34..49: 11 active cells (3394-3407 mV) + 5 sentinels (65535 / 0xFFFF)
+    cells_raw = [3399, 3398, 3398, 3397, 3394, 3402, 3405, 3406, 3407, 3406, 3406, 65535, 65535, 65535, 65535, 65535]
+
+    def mock_poll(request_bytes, expected_func):
+        addr = int.from_bytes(request_bytes[2:4], "big")
+        cnt = int.from_bytes(request_bytes[4:6], "big")
+
+        if addr == 0 and cnt == 8:
+            return ProtocolResponse(success=True, function_code=0x03, values=[5343, 5103, 50, 100, 98, 30, 28, 0])
+        elif addr == 0x000A:
+            return ProtocolResponse(success=True, function_code=0x03, values=[1, 0, 2, 0, 2])
+        elif addr == 18 and cnt == 16:
+            return ProtocolResponse(success=True, function_code=0x03, values=temps_raw)
+        elif addr == 34 and cnt == 16:
+            return ProtocolResponse(success=True, function_code=0x03, values=cells_raw)
+        elif addr == 69:
+            return ProtocolResponse(success=True, function_code=0x03, values=[27354])
+        elif addr == 818:
+            # "ESM-48150B1"
+            return ProtocolResponse(success=True, function_code=0x03, values=[17747, 19757, 13368, 12597, 12354, 12799])
+        elif addr == 529:
+            return ProtocolResponse(success=True, function_code=0x03, values=[21826, 12850, 12338, 12336, 12339, 13364])
+        elif addr == 836:
+            return ProtocolResponse(success=True, function_code=0x03, values=[2025, 5, 31])
+        elif addr == 259:
+            return ProtocolResponse(success=True, function_code=0x03, values=[102, 1, 0, 205, 150])
+        return ProtocolResponse(success=False, function_code=expected_func, error_message="Mock unmapped")
+
+    serial_client.execute_transaction = MagicMock(side_effect=mock_poll)
+
+    # Run physical poll
+    telemetry_svc._poll_hardware_bms()
+
+    # Verify telemetry results
+    t = telemetry_svc.latest_telemetry
+    c = telemetry_svc.latest_cells
+    e = telemetry_svc.latest_electrical
+
+    assert t["device_model"] == "Huawei ESM-48150B1"
+    assert t["mfg_date"] == "2025-05-31"
+    assert t["rated_capacity_ah"] == 102
+    assert t["max_current_limit_a"] == 150
+    assert t["cycle_count"] == 27354
+    assert t["total_voltage"] == 51.03
+    assert t["soc"] == 100.0
+    assert t["soh"] == 98.0
+
+    # Verify Cell filtering (11 active cells, NO 65.535V corrupted values)
+    assert c["cell_count"] == 11
+    assert len(c["cell_voltages"]) == 11
+    assert c["min_cell_voltage"] == 3.394
+    assert c["max_cell_voltage"] == 3.407
+    assert c["cell_voltage_delta_mv"] == 13.0
+    assert c["avg_cell_voltage"] == 3.402
+    assert max(c["cell_voltages"]) < 4.0
+
+    # Verify Temperature filtering (11 active sensors, NO -999°C corrupted values)
+    assert len(c["temperatures"]) == 11
+    assert c["min_cell_temp"] == 28.0
+    assert c["max_cell_temp"] == 30.0
+    assert c["temperature_spread"] == 2.0
+    assert min(c["temperatures"]) >= 0.0
+
 
 

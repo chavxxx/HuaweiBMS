@@ -500,13 +500,15 @@ class MultiBatteryService:
                         soh = round(float(w[4]), 1)
                         temp = float(w[6] if w[6] < 32768 else w[6] - 65536)
 
-                    # 2. Cells (16 cell voltages at 34..49)
+                    # 2. Cells (Regs 34..49, up to 16 cell voltages)
                     req_cells = adapter.build_read_holding_registers(sid, 34, 16)
                     resp_cells = self.serial_client.execute_transaction(req_cells, 0x03)
                     cells = []
-                    if resp_cells.success and len(resp_cells.values) == 16:
-                        cells = [round(mv / 1000.0, 3) for mv in resp_cells.values]
-                    else:
+                    if resp_cells.success and resp_cells.values:
+                        valid_mv = [mv for mv in resp_cells.values if 1500 <= mv <= 5000]
+                        if valid_mv:
+                            cells = [round(mv / 1000.0, 3) for mv in valid_mv]
+                    if not cells:
                         cells = [round(v_pack / 16.0, 3)] * 16
 
                     min_v = min(cells)
@@ -514,7 +516,20 @@ class MultiBatteryService:
                     avg_v = round(sum(cells) / len(cells), 3)
                     delta_v_mv = round((max_v - min_v) * 1000.0, 1)
 
-                    # 3. Model & Serial
+                    # 3. Cell Temperatures (Regs 18..33, up to 16 probes)
+                    req_temps = adapter.build_read_holding_registers(sid, 18, 16)
+                    resp_temps = self.serial_client.execute_transaction(req_temps, 0x03)
+                    temps_arr = []
+                    if resp_temps.success and resp_temps.values:
+                        raw_temps = [float(t if t < 32768 else t - 65536) for t in resp_temps.values]
+                        temps_arr = [t for t in raw_temps if -40.0 <= t <= 125.0]
+                    if not temps_arr:
+                        temps_arr = [temp] * len(cells)
+
+                    min_t = min(temps_arr)
+                    max_t = max(temps_arr)
+
+                    # 4. Model & Serial
                     model_name = "Huawei ESM-48150B1"
                     req_m = adapter.build_read_holding_registers(sid, 818, 6)
                     resp_m = self.serial_client.execute_transaction(req_m, 0x03)
@@ -533,14 +548,34 @@ class MultiBatteryService:
                         if raw_sn:
                             sn = raw_sn
 
-                    # 4. Cycle count
+                    # 5. Manufacture Date (Regs 836..838)
+                    mfg_date = "N/A"
+                    req_date = adapter.build_read_holding_registers(sid, 836, 3)
+                    resp_date = self.serial_client.execute_transaction(req_date, 0x03)
+                    if resp_date.success and len(resp_date.values) == 3:
+                        y, m, d = resp_date.values
+                        if 2000 <= y <= 2099 and 1 <= m <= 12 and 1 <= d <= 31:
+                            mfg_date = f"{y:04d}-{m:02d}-{d:02d}"
+
+                    # 6. Rated Specs (Regs 259 & 263)
+                    rated_cap = 100
+                    max_curr = 150
+                    req_rated = adapter.build_read_holding_registers(sid, 259, 5)
+                    resp_rated = self.serial_client.execute_transaction(req_rated, 0x03)
+                    if resp_rated.success and len(resp_rated.values) >= 5:
+                        if 10 <= resp_rated.values[0] <= 1000:
+                            rated_cap = resp_rated.values[0]
+                        if 10 <= resp_rated.values[4] <= 1000:
+                            max_curr = resp_rated.values[4]
+
+                    # 7. Cycle count
                     cycles = 0
                     req_cyc = adapter.build_read_holding_registers(sid, 69, 1)
                     resp_cyc = self.serial_client.execute_transaction(req_cyc, 0x03)
                     if resp_cyc.success and len(resp_cyc.values) >= 1:
                         cycles = resp_cyc.values[0]
 
-                    # 5. Parameters (Anti-theft lock at 4376)
+                    # 8. Parameters (Anti-theft lock at 4376)
                     req_lock = adapter.build_read_holding_registers(sid, 4376, 2)
                     resp_lock = self.serial_client.execute_transaction(req_lock, 0x03)
                     is_locked = False
@@ -554,9 +589,9 @@ class MultiBatteryService:
                         "name": name,
                         "model": model_name,
                         "serial_number": sn,
-                        "mfg_date": "2022-03-14",
+                        "mfg_date": mfg_date,
                         "firmware_version": "V100R002",
-                        "hardware_rev": "REV-B1",
+                        "hardware_rev": model_name,
                         "online": True,
                         "soc": soc,
                         "soh": soh,
@@ -566,9 +601,9 @@ class MultiBatteryService:
                         "dc_bus_voltage": v_pack,
                         "temperature": temp,
                         "cycle_count": cycles,
-                        "rated_capacity_ah": 100,
-                        "remaining_capacity_ah": round(100.0 * (soc / 100.0), 1),
-                        "max_current_limit_a": 150,
+                        "rated_capacity_ah": rated_cap,
+                        "remaining_capacity_ah": round(rated_cap * (soc / 100.0), 1),
+                        "max_current_limit_a": max_curr,
                         "charge_energy_kwh": 0.0,
                         "discharge_energy_kwh": 0.0,
                         "cell_count": len(cells),
@@ -579,10 +614,10 @@ class MultiBatteryService:
                         "min_cell_index": cells.index(min_v) + 1,
                         "max_cell_index": cells.index(max_v) + 1,
                         "cell_voltage_delta_mv": delta_v_mv,
-                        "cell_temps": [temp] * 16,
-                        "min_cell_temp": temp,
-                        "max_cell_temp": temp,
-                        "temp_spread": 0.0,
+                        "cell_temps": temps_arr,
+                        "min_cell_temp": min_t,
+                        "max_cell_temp": max_t,
+                        "temp_spread": round(max_t - min_t, 1),
                         "operating_state": "Charging" if current > 0.05 else ("Discharging" if current < -0.05 else "Standby"),
                         "active_alarms": [],
                         "alarm_count": 0,

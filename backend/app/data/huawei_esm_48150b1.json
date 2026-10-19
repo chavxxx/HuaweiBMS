@@ -1056,6 +1056,30 @@
     "is_undocumented": false
   },
   {
+    "name": "Discharge Cycle Count",
+    "address": 67,
+    "function_code": 3,
+    "data_type": "uint16",
+    "length_registers": 1,
+    "byte_order": "BigEndian",
+    "scaling_multiplier": 1.0,
+    "scaling_divisor": 1.0,
+    "unit": "cycles",
+    "access_mode": "read_only",
+    "min_value": 0.0,
+    "max_value": 65535.0,
+    "description": "Battery total discharge cycle / operation event counter.",
+    "source_doc": "Wire dump dump_floor.txt Reg 67 = 201, new_low.txt Reg 67 = 597",
+    "supported_models": [
+      "Huawei ESM-48150B1",
+      "Huawei ESM-48100B1",
+      "Huawei EMS-4805B1"
+    ],
+    "verification_procedure": "Wire captured on Huawei ESM-48150B1 (Slave 214, 9600 8E1)",
+    "category": "parameter",
+    "is_undocumented": false
+  },
+  {
     "name": "Cycle Run Counter",
     "address": 69,
     "function_code": 3,
@@ -1149,6 +1173,30 @@
     ],
     "verification_procedure": "Wire captured on Huawei ESM-48150B1 (Slave 214, 9600 8E1)",
     "category": "general",
+    "is_undocumented": false
+  },
+  {
+    "name": "Active Channels Count",
+    "address": 271,
+    "function_code": 3,
+    "data_type": "uint16",
+    "length_registers": 1,
+    "byte_order": "BigEndian",
+    "scaling_multiplier": 1.0,
+    "scaling_divisor": 1.0,
+    "unit": "channels",
+    "access_mode": "read_only",
+    "min_value": 1.0,
+    "max_value": 32.0,
+    "description": "Count of configured/active cell and temperature monitoring channels in this pack.",
+    "source_doc": "Wire dump dump_hi.txt Reg 271 = 22, new_mid.txt Reg 271 = 11",
+    "supported_models": [
+      "Huawei ESM-48150B1",
+      "Huawei ESM-48100B1",
+      "Huawei EMS-4805B1"
+    ],
+    "verification_procedure": "Wire captured on Huawei ESM-48150B1 (Slave 214, 9600 8E1)",
+    "category": "parameter",
     "is_undocumented": false
   },
   {

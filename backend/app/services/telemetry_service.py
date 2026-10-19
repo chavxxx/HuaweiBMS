@@ -418,21 +418,27 @@ class TelemetryService:
                 else:
                     state_str = "Normal"
 
-                # 3. Query 16 individual Cell Temperatures at Regs 18 - 33 (0x0012, 16 sensors)
+                # 3. Query individual Cell Temperatures at Regs 18 - 33 (0x0012, up to 16 sensors)
                 temps_arr = []
                 temps_req = adapter.build_read_holding_registers(slave_id, 18, 16)
                 temps_resp = self.serial_client.execute_transaction(temps_req, 0x03)
-                if temps_resp.success and len(temps_resp.values) == 16:
-                    temps_arr = [float(t if t < 32768 else t - 65536) for t in temps_resp.values]
+                if temps_resp.success and temps_resp.values:
+                    # Valid physical temps: -40°C to 125°C.
+                    # Huawei firmware writes 64537 (-999 / 0xFC19) for unpopulated/disconnected sensor channels
+                    raw_temps = [float(t if t < 32768 else t - 65536) for t in temps_resp.values]
+                    temps_arr = [t for t in raw_temps if -40.0 <= t <= 125.0]
                 if not temps_arr:
                     temps_arr = [temp_ambient, temp_bms]
 
-                # 4. Query 16 individual Series Cell Voltages at Regs 34 - 49 (0x0022, 16 cells)
+                # 4. Query individual Series Cell Voltages at Regs 34 - 49 (0x0022, up to 16 cells)
                 cell_voltages_v = []
                 cells_req = adapter.build_read_holding_registers(slave_id, 34, 16)
                 cells_resp = self.serial_client.execute_transaction(cells_req, 0x03)
-                if cells_resp.success and len(cells_resp.values) == 16:
-                    cell_voltages_v = [round(mv / 1000.0, 3) for mv in cells_resp.values]
+                if cells_resp.success and cells_resp.values:
+                    # Valid physical cell voltage: 1500 mV to 5000 mV (1.5V - 5.0V).
+                    # Huawei firmware writes 65535 (0xFFFF / -1) for unpopulated/disconnected cell channels
+                    valid_mv = [mv for mv in cells_resp.values if 1500 <= mv <= 5000]
+                    cell_voltages_v = [round(mv / 1000.0, 3) for mv in valid_mv]
 
                 # 5. Query Cycle Count at Reg 69 (if not yet read)
                 if self._hardware_cycle_count is None:
