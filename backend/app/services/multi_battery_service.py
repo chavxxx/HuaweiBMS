@@ -402,14 +402,20 @@ class MultiBatteryService:
                 charge_limit_coef = sim.parameters.get(4109, 500)
                 discharge_limit_coef = sim.parameters.get(4107, 1000)
 
+                rated_cap = 150
+                cycles = 400 + sid * 180
+                discharged_ah = int(cycles * 85)
+                equiv_cycles = round(discharged_ah / float(rated_cap), 1)
+
                 battery_data.append({
                     "slave_id": sid,
                     "name": name,
                     "model": sim.device_model,
                     "serial_number": sim.serial_number,
-                    "mfg_date": "2022-03-14",
-                    "firmware_version": sim.firmware_version,
-                    "hardware_rev": sim.hardware_rev,
+                    "mfg_date": "2025-05-31" if sid % 2 == 0 else "2022-03-14",
+                    "firmware_version": "V2.70" if sid % 2 == 0 else "V2.67",
+                    "hardware_rev": "Rev 69" if sid % 2 == 0 else "Rev 65",
+                    "bootloader_version": "V1.02" if sid % 2 == 0 else "V1.00",
                     "online": True,
                     "soc": round(sim.soc, 1),
                     "soh": round(sim.soh, 1),
@@ -417,15 +423,20 @@ class MultiBatteryService:
                     "current": round(sim.current, 2),
                     "power": round(sim.power, 3),
                     "dc_bus_voltage": round(sim.total_voltage + 0.3, 2),
+                    "bus_delta_v": 0.3,
+                    "bus_delta_voltage": 0.3,
                     "temperature": round(sim.temperature, 1),
-                    "cycle_count": 400 + sid * 180,
-                    "rated_capacity_ah": 100,
-                    "remaining_capacity_ah": round(100.0 * (sim.soc / 100.0), 1),
+                    "cycle_count": cycles,
+                    "discharged_capacity_ah": discharged_ah,
+                    "equivalent_full_cycles": equiv_cycles,
+                    "rated_capacity_ah": rated_cap,
+                    "remaining_capacity_ah": round(rated_cap * (sim.soc / 100.0), 1),
                     "max_current_limit_a": 150,
                     "charge_energy_kwh": round(sim.charge_energy, 1),
                     "discharge_energy_kwh": round(sim.discharge_energy, 1),
                     # Cell details
                     "cell_count": len(cells),
+                    "reported_cell_count": len(cells),
                     "cell_voltages": cells,
                     "min_cell_voltage": min_v,
                     "max_cell_voltage": max_v,
@@ -447,9 +458,9 @@ class MultiBatteryService:
                         "gyroscope_anti_theft_locked": (gyro_lock == 1),
                         "gyroscope_sensitivity": sim.parameters.get(4377, 1),
                         "charge_limit_c": round(charge_limit_coef / 1000.0, 3),
-                        "charge_limit_a": round((charge_limit_coef / 1000.0) * 100.0, 1),
+                        "charge_limit_a": round((charge_limit_coef / 1000.0) * float(rated_cap), 1),
                         "discharge_limit_c": round(discharge_limit_coef / 1000.0, 3),
-                        "discharge_limit_a": round((discharge_limit_coef / 1000.0) * 100.0, 1),
+                        "discharge_limit_a": round((discharge_limit_coef / 1000.0) * float(rated_cap), 1),
                         "float_voltage_v": 54.0,
                         "boost_voltage_v": 56.4,
                         "cutoff_voltage_v": 44.0,
@@ -480,10 +491,11 @@ class MultiBatteryService:
                 # Query physical registers for this slave ID
                 adapter = self.serial_client.adapter
                 try:
-                    # 1. Base telemetry
+                    # 1. Base telemetry (Regs 0x0000..0x0007)
                     req_base = adapter.build_read_holding_registers(sid, 0x0000, 8)
                     resp_base = self.serial_client.execute_transaction(req_base, 0x03)
 
+                    v_bus = 53.4
                     v_pack = 53.2
                     current = 0.0
                     soc = 75.0
@@ -492,6 +504,7 @@ class MultiBatteryService:
 
                     if resp_base.success and len(resp_base.values) >= 7:
                         w = resp_base.values
+                        v_bus = round(w[0] * 0.01, 2)
                         v_pack = round(w[1] * 0.01, 2)
                         raw_i = w[2]
                         signed_i = raw_i if raw_i < 32768 else raw_i - 65536
@@ -500,7 +513,62 @@ class MultiBatteryService:
                         soh = round(float(w[4]), 1)
                         temp = float(w[6] if w[6] < 32768 else w[6] - 65536)
 
-                    # 2. Cells (Regs 34..49, up to 16 cell voltages)
+                    # 2. Operating Mode & Status at Regs 10..15
+                    op_mode_raw = 4  # Standby
+                    state_str = "Standby"
+                    req_stat = adapter.build_read_holding_registers(sid, 10, 6)
+                    resp_stat = self.serial_client.execute_transaction(req_stat, 0x03)
+                    if resp_stat.success and len(resp_stat.values) >= 5:
+                        op_mode_raw = resp_stat.values[4]  # Reg 14
+                        mode_map = {0: "Hibernate", 1: "Low Power", 2: "Charging", 3: "Discharging", 4: "Standby"}
+                        state_str = mode_map.get(op_mode_raw, "Standby")
+                    elif current > 0.05:
+                        state_str = "Charging"
+                    elif current < -0.05:
+                        state_str = "Discharging"
+
+                    # 3. Alarms at Regs 70..74
+                    active_alarms = []
+                    alarm_req = adapter.build_read_holding_registers(sid, 70, 5)
+                    alarm_resp = self.serial_client.execute_transaction(alarm_req, 0x03)
+                    if alarm_resp.success and len(alarm_resp.values) == 5:
+                        crit1, crit2, maj, minr, mod_al = alarm_resp.values
+                        if crit1: active_alarms.append(f"CRITICAL_1:0x{crit1:04X}")
+                        if crit2: active_alarms.append(f"CRITICAL_2:0x{crit2:04X}")
+                        if maj: active_alarms.append(f"MAJOR:0x{maj:04X}")
+                        if minr: active_alarms.append(f"MINOR:0x{minr:04X}")
+                        if mod_al: active_alarms.append(f"MODULE:0x{mod_al:04X}")
+
+                    if active_alarms:
+                        state_str = "Fault"
+
+                    # 4. System Specs at Regs 257..271 (15 registers)
+                    sw_ver_str = "V2.70"
+                    hw_rev_str = "Rev 69"
+                    bootloader_str = "V1.02"
+                    rated_cap = 150
+                    max_curr = 150
+                    reported_cells = 16
+
+                    req_specs = adapter.build_read_holding_registers(sid, 257, 15)
+                    resp_specs = self.serial_client.execute_transaction(req_specs, 0x03)
+                    if resp_specs.success and len(resp_specs.values) >= 15:
+                        vals = resp_specs.values
+                        sw_ver = vals[0]
+                        hw_ver = vals[1]
+                        bl_ver = vals[2]
+                        cap_val = vals[6]      # Reg 263: Rated Capacity (150 Ah)
+                        cell_cnt = vals[14]    # Reg 271: Reported Cell Count (11 or 22)
+
+                        sw_ver_str = f"V{sw_ver // 100}.{sw_ver % 100:02d}"
+                        hw_rev_str = f"Rev {hw_ver}"
+                        bootloader_str = f"V{bl_ver // 100}.{bl_ver % 100:02d}"
+                        if 10 <= cap_val <= 1000:
+                            rated_cap = cap_val
+                        if cell_cnt in (11, 15, 16, 22):
+                            reported_cells = cell_cnt
+
+                    # 5. Cell Voltages (Regs 34..49, up to 16 cell voltages)
                     req_cells = adapter.build_read_holding_registers(sid, 34, 16)
                     resp_cells = self.serial_client.execute_transaction(req_cells, 0x03)
                     cells = []
@@ -508,28 +576,44 @@ class MultiBatteryService:
                         valid_mv = [mv for mv in resp_cells.values if 1500 <= mv <= 5000]
                         if valid_mv:
                             cells = [round(mv / 1000.0, 3) for mv in valid_mv]
-                    if not cells:
-                        cells = [round(v_pack / 16.0, 3)] * 16
 
-                    min_v = min(cells)
-                    max_v = max(cells)
-                    avg_v = round(sum(cells) / len(cells), 3)
-                    delta_v_mv = round((max_v - min_v) * 1000.0, 1)
-
-                    # 3. Cell Temperatures (Regs 18..33, up to 16 probes)
+                    # 6. Cell Temperatures (Regs 18..33, up to 16 probes)
                     req_temps = adapter.build_read_holding_registers(sid, 18, 16)
                     resp_temps = self.serial_client.execute_transaction(req_temps, 0x03)
                     temps_arr = []
                     if resp_temps.success and resp_temps.values:
                         raw_temps = [float(t if t < 32768 else t - 65536) for t in resp_temps.values]
                         temps_arr = [t for t in raw_temps if -40.0 <= t <= 125.0]
+
+                    # If reported cell count > 16, query extended cells (Regs 768..773, 784..789)
+                    if reported_cells > 16:
+                        extra_count = min(reported_cells - 16, 8)
+                        t_ext = adapter.build_read_holding_registers(sid, 768, extra_count)
+                        t_ext_resp = self.serial_client.execute_transaction(t_ext, 0x03)
+                        if t_ext_resp.success and t_ext_resp.values:
+                            r_ext_t = [float(t if t < 32768 else t - 65536) for t in t_ext_resp.values]
+                            temps_arr.extend([t for t in r_ext_t if -40.0 <= t <= 125.0])
+
+                        v_ext = adapter.build_read_holding_registers(sid, 784, extra_count)
+                        v_ext_resp = self.serial_client.execute_transaction(v_ext, 0x03)
+                        if v_ext_resp.success and v_ext_resp.values:
+                            valid_ext_v = [round(mv / 1000.0, 3) for mv in v_ext_resp.values if 1500 <= mv <= 5000]
+                            cells.extend(valid_ext_v)
+
+                    if not cells:
+                        cells = [round(v_pack / max(reported_cells, 16), 3)] * max(reported_cells, 16)
                     if not temps_arr:
                         temps_arr = [temp] * len(cells)
+
+                    min_v = min(cells)
+                    max_v = max(cells)
+                    avg_v = round(sum(cells) / len(cells), 3)
+                    delta_v_mv = round((max_v - min_v) * 1000.0, 1)
 
                     min_t = min(temps_arr)
                     max_t = max(temps_arr)
 
-                    # 4. Model & Serial
+                    # 7. Model Name (Regs 818..823) & Barcode Serial (Regs 529..534)
                     model_name = "Huawei ESM-48150B1"
                     req_m = adapter.build_read_holding_registers(sid, 818, 6)
                     resp_m = self.serial_client.execute_transaction(req_m, 0x03)
@@ -548,7 +632,7 @@ class MultiBatteryService:
                         if raw_sn:
                             sn = raw_sn
 
-                    # 5. Manufacture Date (Regs 836..838)
+                    # 8. Manufacture Date (Regs 836..838)
                     mfg_date = "N/A"
                     req_date = adapter.build_read_holding_registers(sid, 836, 3)
                     resp_date = self.serial_client.execute_transaction(req_date, 0x03)
@@ -557,32 +641,35 @@ class MultiBatteryService:
                         if 2000 <= y <= 2099 and 1 <= m <= 12 and 1 <= d <= 31:
                             mfg_date = f"{y:04d}-{m:02d}-{d:02d}"
 
-                    # 6. Rated Specs (Regs 259 & 263)
-                    rated_cap = 100
-                    max_curr = 150
-                    req_rated = adapter.build_read_holding_registers(sid, 259, 5)
-                    resp_rated = self.serial_client.execute_transaction(req_rated, 0x03)
-                    if resp_rated.success and len(resp_rated.values) >= 5:
-                        if 10 <= resp_rated.values[0] <= 1000:
-                            rated_cap = resp_rated.values[0]
-                        if 10 <= resp_rated.values[4] <= 1000:
-                            max_curr = resp_rated.values[4]
+                    # 9. 32-bit Discharge Counter (Regs 66-67) & Discharged Ah (Regs 68-69)
+                    discharge_cycles = 0
+                    discharged_ah = 0
+                    req_cnt = adapter.build_read_holding_registers(sid, 66, 4)
+                    resp_cnt = self.serial_client.execute_transaction(req_cnt, 0x03)
+                    if resp_cnt.success and len(resp_cnt.values) == 4:
+                        w = resp_cnt.values
+                        discharge_cycles = (w[0] << 16) | w[1]
+                        discharged_ah = (w[2] << 16) | w[3]
 
-                    # 7. Cycle count
-                    cycles = 0
-                    req_cyc = adapter.build_read_holding_registers(sid, 69, 1)
-                    resp_cyc = self.serial_client.execute_transaction(req_cyc, 0x03)
-                    if resp_cyc.success and len(resp_cyc.values) >= 1:
-                        cycles = resp_cyc.values[0]
+                    equiv_cycles = round(discharged_ah / max(rated_cap, 1), 1)
 
-                    # 8. Parameters (Anti-theft lock at 4376)
+                    # 10. Parameters (Anti-theft lock at 4376, charge limit at 4109, discharge limit at 4107)
                     req_lock = adapter.build_read_holding_registers(sid, 4376, 2)
                     resp_lock = self.serial_client.execute_transaction(req_lock, 0x03)
                     is_locked = False
                     if resp_lock.success and len(resp_lock.values) >= 1:
                         is_locked = (resp_lock.values[0] == 1)
 
+                    chg_c = 0.5
+                    dis_c = 1.0
+                    req_limits = adapter.build_read_holding_registers(sid, 4107, 3)
+                    resp_limits = self.serial_client.execute_transaction(req_limits, 0x03)
+                    if resp_limits.success and len(resp_limits.values) >= 3:
+                        dis_c = round(resp_limits.values[0] * 0.001, 3)  # Reg 4107
+                        chg_c = round(resp_limits.values[2] * 0.001, 3)  # Reg 4109
+
                     power = round((v_pack * current) / 1000.0, 3)
+                    bus_delta_v = round(v_bus - v_pack, 2)
 
                     battery_data.append({
                         "slave_id": sid,
@@ -590,23 +677,29 @@ class MultiBatteryService:
                         "model": model_name,
                         "serial_number": sn,
                         "mfg_date": mfg_date,
-                        "firmware_version": "V100R002",
-                        "hardware_rev": model_name,
+                        "firmware_version": sw_ver_str,
+                        "hardware_rev": hw_rev_str,
+                        "bootloader_version": bootloader_str,
                         "online": True,
                         "soc": soc,
                         "soh": soh,
                         "total_voltage": v_pack,
                         "current": current,
                         "power": power,
-                        "dc_bus_voltage": v_pack,
+                        "dc_bus_voltage": v_bus,
+                        "bus_delta_v": bus_delta_v,
+                        "bus_delta_voltage": bus_delta_v,
                         "temperature": temp,
-                        "cycle_count": cycles,
+                        "cycle_count": discharge_cycles,
+                        "discharged_capacity_ah": discharged_ah,
+                        "equivalent_full_cycles": equiv_cycles,
                         "rated_capacity_ah": rated_cap,
                         "remaining_capacity_ah": round(rated_cap * (soc / 100.0), 1),
                         "max_current_limit_a": max_curr,
                         "charge_energy_kwh": 0.0,
-                        "discharge_energy_kwh": 0.0,
+                        "discharge_energy_kwh": round((discharged_ah * v_pack) / 1000.0, 2),
                         "cell_count": len(cells),
+                        "reported_cell_count": reported_cells,
                         "cell_voltages": cells,
                         "min_cell_voltage": min_v,
                         "max_cell_voltage": max_v,
@@ -618,16 +711,16 @@ class MultiBatteryService:
                         "min_cell_temp": min_t,
                         "max_cell_temp": max_t,
                         "temp_spread": round(max_t - min_t, 1),
-                        "operating_state": "Charging" if current > 0.05 else ("Discharging" if current < -0.05 else "Standby"),
-                        "active_alarms": [],
-                        "alarm_count": 0,
+                        "operating_state": state_str,
+                        "active_alarms": active_alarms,
+                        "alarm_count": len(active_alarms),
                         "parameters": {
                             "gyroscope_anti_theft_locked": is_locked,
                             "gyroscope_sensitivity": 1,
-                            "charge_limit_c": 0.5,
-                            "charge_limit_a": 50.0,
-                            "discharge_limit_c": 1.0,
-                            "discharge_limit_a": 100.0,
+                            "charge_limit_c": chg_c,
+                            "charge_limit_a": round(chg_c * float(rated_cap), 1),
+                            "discharge_limit_c": dis_c,
+                            "discharge_limit_a": round(dis_c * float(rated_cap), 1),
                             "float_voltage_v": 54.0,
                             "boost_voltage_v": 56.4,
                             "cutoff_voltage_v": 44.0,
@@ -803,14 +896,20 @@ class MultiBatteryService:
             "Battery Name",
             "Device Model",
             "Serial Number",
+            "Firmware",
+            "Bootloader",
             "Status",
             "SOC (%)",
             "SOH (%)",
             "Pack Voltage (V)",
+            "DC Bus Voltage (V)",
+            "Bus Delta (V)",
             "Current (A)",
             "Power (kW)",
             "Temperature (°C)",
-            "Cycle Count",
+            "Discharge Events",
+            "Discharged Ah",
+            "Equiv Full Cycles",
             "Rated Cap (Ah)",
             "Remaining Cap (Ah)",
             "Cell Delta (mV)",
@@ -829,19 +928,28 @@ class MultiBatteryService:
 
         for b in batteries:
             params = b.get("parameters", {})
+            v_pack = b.get("total_voltage", 0.0) or 0.0
+            v_bus = b.get("dc_bus_voltage", v_pack) or v_pack
+            bus_delta = b.get("bus_delta_v", round(v_bus - v_pack, 2))
             writer.writerow([
                 b.get("slave_id"),
                 b.get("name"),
                 b.get("model"),
                 b.get("serial_number"),
+                b.get("firmware_version", "N/A"),
+                b.get("bootloader_version", "N/A"),
                 b.get("operating_state"),
                 b.get("soc"),
                 b.get("soh"),
-                b.get("total_voltage"),
+                v_pack,
+                v_bus,
+                bus_delta,
                 b.get("current"),
                 b.get("power"),
                 b.get("temperature"),
                 b.get("cycle_count"),
+                b.get("discharged_capacity_ah", 0),
+                b.get("equivalent_full_cycles", 0.0),
                 b.get("rated_capacity_ah"),
                 b.get("remaining_capacity_ah"),
                 b.get("cell_voltage_delta_mv"),

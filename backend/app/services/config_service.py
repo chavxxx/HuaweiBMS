@@ -300,8 +300,8 @@ class ConfigService:
                     if self.telemetry_service and self.telemetry_service.latest_telemetry.get("rated_capacity_ah"):
                         cap = float(self.telemetry_service.latest_telemetry["rated_capacity_ah"])
                     else:
-                        cap_w = self._read_modbus_register_raw(259, 1)
-                        if cap_w and cap_w[0] > 0:
+                        cap_w = self._read_modbus_register_raw(263, 1) or self._read_modbus_register_raw(259, 1)
+                        if cap_w and 10 <= cap_w[0] <= 1000:
                             cap = float(cap_w[0])
 
                     target_c = min(max(round(float(new_value) / max(v_pack * cap, 1.0), 3), 0.050), 1.050)
@@ -331,8 +331,8 @@ class ConfigService:
                     if self.telemetry_service and self.telemetry_service.latest_telemetry.get("rated_capacity_ah"):
                         cap = float(self.telemetry_service.latest_telemetry["rated_capacity_ah"])
                     else:
-                        cap_w = self._read_modbus_register_raw(259, 1)
-                        if cap_w and cap_w[0] > 0:
+                        cap_w = self._read_modbus_register_raw(263, 1) or self._read_modbus_register_raw(259, 1)
+                        if cap_w and 10 <= cap_w[0] <= 1000:
                             cap = float(cap_w[0])
 
                     target_c = min(max(round(float(new_value) / max(v_pack * cap, 1.0), 3), 0.050), 1.050)
@@ -490,15 +490,15 @@ class ConfigService:
             if v_w:
                 v_pack = round(v_w[0] * 0.01, 2)
 
-        # 2. Fetch rated capacity
+        # 2. Fetch rated capacity (Reg 263 = Rated Capacity 150 Ah)
         cap = 150.0
         if is_simulation:
-            cap = 100.0
+            cap = 150.0
         elif self.telemetry_service and self.telemetry_service.latest_telemetry.get("rated_capacity_ah"):
             cap = float(self.telemetry_service.latest_telemetry["rated_capacity_ah"])
         else:
-            cap_w = self._read_modbus_register_raw(259, 1)
-            if cap_w and cap_w[0] > 0:
+            cap_w = self._read_modbus_register_raw(263, 1) or self._read_modbus_register_raw(259, 1)
+            if cap_w and 10 <= cap_w[0] <= 1000:
                 cap = float(cap_w[0])
 
         if address == 47081:

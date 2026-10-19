@@ -252,8 +252,8 @@ def test_hardware_sentinel_filtering_and_11_cell_pack():
             return ProtocolResponse(success=True, function_code=0x03, values=temps_raw)
         elif addr == 34 and cnt == 16:
             return ProtocolResponse(success=True, function_code=0x03, values=cells_raw)
-        elif addr == 69:
-            return ProtocolResponse(success=True, function_code=0x03, values=[27354])
+        elif addr == 66 and cnt == 4:
+            return ProtocolResponse(success=True, function_code=0x03, values=[0, 597, 0, 27354])
         elif addr == 818:
             # "ESM-48150B1"
             return ProtocolResponse(success=True, function_code=0x03, values=[17747, 19757, 13368, 12597, 12354, 12799])
@@ -261,8 +261,9 @@ def test_hardware_sentinel_filtering_and_11_cell_pack():
             return ProtocolResponse(success=True, function_code=0x03, values=[21826, 12850, 12338, 12336, 12339, 13364])
         elif addr == 836:
             return ProtocolResponse(success=True, function_code=0x03, values=[2025, 5, 31])
-        elif addr == 259:
-            return ProtocolResponse(success=True, function_code=0x03, values=[102, 1, 0, 205, 150])
+        elif addr == 257 and cnt == 15:
+            # Regs 257..271: sw=270, hw=69, bl=102, vendor=0, ..., sub=205, rated_cap=150, ..., reported_cells=11
+            return ProtocolResponse(success=True, function_code=0x03, values=[270, 69, 102, 1, 0, 205, 150, 0, 0, 0, 0, 0, 0, 0, 11])
         return ProtocolResponse(success=False, function_code=expected_func, error_message="Mock unmapped")
 
     serial_client.execute_transaction = MagicMock(side_effect=mock_poll)
@@ -277,9 +278,15 @@ def test_hardware_sentinel_filtering_and_11_cell_pack():
 
     assert t["device_model"] == "Huawei ESM-48150B1"
     assert t["mfg_date"] == "2025-05-31"
-    assert t["rated_capacity_ah"] == 102
+    assert t["firmware_version"] == "V2.70"
+    assert t["hardware_rev"] == "Rev 69"
+    assert t["bootloader_version"] == "V1.02"
+    assert t["rated_capacity_ah"] == 150
     assert t["max_current_limit_a"] == 150
-    assert t["cycle_count"] == 27354
+    assert t["cycle_count"] == 597
+    assert t["discharged_capacity_ah"] == 27354
+    assert t["equivalent_full_cycles"] == 182.4
+    assert t["reported_cell_count"] == 11
     assert t["total_voltage"] == 51.03
     assert t["soc"] == 100.0
     assert t["soh"] == 98.0

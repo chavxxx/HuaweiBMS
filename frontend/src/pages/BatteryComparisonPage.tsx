@@ -527,6 +527,9 @@ export const BatteryComparisonPage: React.FC<BatteryComparisonPageProps> = ({
                       <div className="text-[11px] text-slate-400 font-mono mt-0.5">
                         {b.model} · <span className="text-slate-300">{b.serial_number}</span>
                       </div>
+                      <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                        FW: {b.firmware_version ?? '—'} · BL: {b.bootloader_version ?? '—'} · {b.mfg_date ?? '—'}
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-1">
@@ -560,7 +563,14 @@ export const BatteryComparisonPage: React.FC<BatteryComparisonPageProps> = ({
                   <div className="grid grid-cols-2 gap-2 pt-3 text-xs border-t border-slate-800/80 mt-3 font-mono">
                     <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800/60">
                       <span className="text-[10px] text-slate-400 block">Pack Voltage</span>
-                      <span className="font-bold text-slate-100">{b.total_voltage} V</span>
+                      <span className="font-bold text-slate-100">
+                        {b.total_voltage} V
+                        {b.bus_delta_v !== undefined && (
+                          <span className="text-[9px] text-cyan-400 ml-1">
+                            ({b.bus_delta_v > 0 ? '+' : ''}{b.bus_delta_v}V)
+                          </span>
+                        )}
+                      </span>
                     </div>
 
                     <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800/60">
@@ -601,15 +611,32 @@ export const BatteryComparisonPage: React.FC<BatteryComparisonPageProps> = ({
                     </div>
 
                     <div className="flex items-center justify-between text-slate-400">
-                      <span>Charge Limit:</span>
+                      <span>Rated Capacity:</span>
                       <span className="text-slate-200 font-bold">
-                        {b.parameters?.charge_limit_a ?? 50.0} A ({b.parameters?.charge_limit_c ?? 0.5}C)
+                        {b.rated_capacity_ah ?? 150} Ah
                       </span>
                     </div>
 
                     <div className="flex items-center justify-between text-slate-400">
-                      <span>Cycle Count:</span>
-                      <span className="text-slate-300">{b.cycle_count} cycles</span>
+                      <span>Lifetime Discharged:</span>
+                      <span className="text-cyan-300 font-bold">
+                        {b.discharged_capacity_ah !== undefined ? `${b.discharged_capacity_ah.toLocaleString()} Ah` : '—'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-slate-400">
+                      <span>Equiv Full Cycles:</span>
+                      <span className="text-slate-200 font-bold">
+                        {b.equivalent_full_cycles !== undefined ? `${b.equivalent_full_cycles} cyc` : `${b.cycle_count} ev`}
+                        <span className="text-[10px] text-slate-500 font-normal ml-1">({b.cycle_count} ev)</span>
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-slate-400">
+                      <span>Charge Limit:</span>
+                      <span className="text-slate-200 font-bold">
+                        {b.parameters?.charge_limit_a ?? 50.0} A ({b.parameters?.charge_limit_c ?? 0.5}C)
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -668,17 +695,19 @@ export const BatteryComparisonPage: React.FC<BatteryComparisonPageProps> = ({
                 <tr>
                   <th className="py-3 px-4">Battery</th>
                   <th className="py-3 px-3">Slave ID</th>
-                  <th className="py-3 px-3">Model</th>
+                  <th className="py-3 px-3">Model / Version</th>
                   <th className="py-3 px-3">Serial / Barcode</th>
                   <th className="py-3 px-3 text-right">SOC (%)</th>
                   <th className="py-3 px-3 text-right">SOH (%)</th>
-                  <th className="py-3 px-3 text-right">Pack V</th>
+                  <th className="py-3 px-3 text-right">Rated Cap</th>
+                  <th className="py-3 px-3 text-right">Pack V (Δ Bus)</th>
                   <th className="py-3 px-3 text-right">Current</th>
                   <th className="py-3 px-3 text-right">Power</th>
                   <th className="py-3 px-3 text-right">Delta V</th>
                   <th className="py-3 px-3 text-right">Min/Max Cell</th>
                   <th className="py-3 px-3 text-right">Max Temp</th>
-                  <th className="py-3 px-3 text-right">Cycles</th>
+                  <th className="py-3 px-3 text-right">Discharged Ah</th>
+                  <th className="py-3 px-3 text-right">Equiv Cycles</th>
                   <th className="py-3 px-3">Lock Status</th>
                   <th className="py-3 px-3 text-right">Charge Limit</th>
                   <th className="py-3 px-4 text-center">Action</th>
@@ -705,11 +734,24 @@ export const BatteryComparisonPage: React.FC<BatteryComparisonPageProps> = ({
                         )}
                       </td>
                       <td className="py-3 px-3 text-slate-300 font-bold">{b.slave_id}</td>
-                      <td className="py-3 px-3 text-slate-300">{b.model}</td>
+                      <td className="py-3 px-3 text-slate-300">
+                        <div>{b.model}</div>
+                        <div className="text-[9px] text-slate-500">
+                          FW: {b.firmware_version ?? '—'} · BL: {b.bootloader_version ?? '—'}
+                        </div>
+                      </td>
                       <td className="py-3 px-3 text-slate-400">{b.serial_number}</td>
                       <td className="py-3 px-3 text-right text-cyan-400 font-bold">{b.soc}%</td>
                       <td className="py-3 px-3 text-right text-emerald-400 font-bold">{b.soh}%</td>
-                      <td className="py-3 px-3 text-right text-slate-200">{b.total_voltage} V</td>
+                      <td className="py-3 px-3 text-right text-slate-200 font-bold">{b.rated_capacity_ah ?? 150} Ah</td>
+                      <td className="py-3 px-3 text-right text-slate-200">
+                        {b.total_voltage} V
+                        {b.bus_delta_v !== undefined && (
+                          <span className="text-[9px] text-cyan-400 ml-1">
+                            ({b.bus_delta_v > 0 ? '+' : ''}{b.bus_delta_v}V)
+                          </span>
+                        )}
+                      </td>
                       <td className="py-3 px-3 text-right text-slate-200">{b.current} A</td>
                       <td className="py-3 px-3 text-right text-slate-400">{b.power} kW</td>
                       <td className={`py-3 px-3 text-right font-bold ${
@@ -723,7 +765,19 @@ export const BatteryComparisonPage: React.FC<BatteryComparisonPageProps> = ({
                       <td className="py-3 px-3 text-right text-slate-300">
                         {b.max_cell_temp ?? b.temperature} °C
                       </td>
-                      <td className="py-3 px-3 text-right text-slate-400">{b.cycle_count}</td>
+                      <td className="py-3 px-3 text-right text-cyan-300 font-bold">
+                        {b.discharged_capacity_ah !== undefined ? `${b.discharged_capacity_ah.toLocaleString()} Ah` : '—'}
+                      </td>
+                      <td className="py-3 px-3 text-right text-slate-300">
+                        {b.equivalent_full_cycles !== undefined ? (
+                          <span>
+                            {b.equivalent_full_cycles} cyc
+                            <span className="text-[9px] text-slate-500 block">({b.cycle_count} ev)</span>
+                          </span>
+                        ) : (
+                          `${b.cycle_count} ev`
+                        )}
+                      </td>
                       <td className="py-3 px-3">
                         {isLocked ? (
                           <span className="text-rose-400 font-bold flex items-center gap-1">

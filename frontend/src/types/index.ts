@@ -47,8 +47,12 @@ export interface TelemetryData {
   discharge_permission: boolean
   active_alarm_codes: (number | string)[]
   cycle_count?: number | null
+  discharged_capacity_ah?: number | null
+  equivalent_full_cycles?: number | null
   rated_capacity_ah?: number | null
   max_current_limit_a?: number | null
+  bootloader_version?: string
+  reported_cell_count?: number
 }
 
 export interface ElectricalData {
@@ -58,6 +62,7 @@ export interface ElectricalData {
   charge_power: number | null
   discharge_power: number | null
   dc_bus_voltage: number | null
+  bus_delta_voltage?: number | null
   charge_energy: number | null
   discharge_energy: number | null
   max_charge_power_limit: number | null
@@ -263,6 +268,8 @@ export interface BatterySummaryItem {
   temperature: number
   cell_voltage_delta_mv: number
   cycle_count: number
+  discharged_capacity_ah?: number
+  equivalent_full_cycles?: number
   rated_capacity_ah: number
   alarm_count: number
   active_alarms: (string | number)[]
@@ -285,12 +292,16 @@ export interface BatteryDetailItem extends BatterySummaryItem {
   mfg_date?: string
   firmware_version?: string
   hardware_rev?: string
+  bootloader_version?: string
   dc_bus_voltage?: number
+  bus_delta_v?: number
+  bus_delta_voltage?: number
   remaining_capacity_ah?: number
   max_current_limit_a?: number
   charge_energy_kwh?: number
   discharge_energy_kwh?: number
   cell_count: number
+  reported_cell_count?: number
   cell_voltages: number[]
   min_cell_voltage: number
   max_cell_voltage: number
