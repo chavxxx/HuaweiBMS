@@ -602,8 +602,10 @@ class MultiBatteryService:
                             bootloader_str = f"V{bl_ver // 100}.{bl_ver % 100:02d}"
                             if 10 <= cap_val <= 1000:
                                 rated_cap = cap_val
-                            if cell_cnt in (11, 15, 16, 22):
+                            if cell_cnt in (11, 15, 16):
                                 reported_cells = cell_cnt
+                            else:
+                                reported_cells = 16
 
                         time.sleep(delay)
 
@@ -614,7 +616,7 @@ class MultiBatteryService:
                         if resp_cells.success and resp_cells.values:
                             valid_mv = [mv for mv in resp_cells.values if 1500 <= mv <= 5000]
                             if valid_mv:
-                                cells = [round(mv / 1000.0, 3) for mv in valid_mv]
+                                cells = [round(mv / 1000.0, 3) for mv in valid_mv[:16]]
 
                         time.sleep(delay)
 
@@ -624,29 +626,14 @@ class MultiBatteryService:
                         temps_arr = []
                         if resp_temps.success and resp_temps.values:
                             raw_temps = [float(t if t < 32768 else t - 65536) for t in resp_temps.values]
-                            temps_arr = [t for t in raw_temps if -40.0 <= t <= 125.0]
-
-                        # If reported cell count > 16, query extended cells (Regs 768..773, 784..789)
-                        if reported_cells > 16:
-                            extra_count = min(reported_cells - 16, 8)
-                            time.sleep(delay)
-                            t_ext = adapter.build_read_holding_registers(sid, 768, extra_count)
-                            t_ext_resp = self.serial_client.execute_transaction(t_ext, 0x03)
-                            if t_ext_resp.success and t_ext_resp.values:
-                                r_ext_t = [float(t if t < 32768 else t - 65536) for t in t_ext_resp.values]
-                                temps_arr.extend([t for t in r_ext_t if -40.0 <= t <= 125.0])
-
-                            time.sleep(delay)
-                            v_ext = adapter.build_read_holding_registers(sid, 784, extra_count)
-                            v_ext_resp = self.serial_client.execute_transaction(v_ext, 0x03)
-                            if v_ext_resp.success and v_ext_resp.values:
-                                valid_ext_v = [round(mv / 1000.0, 3) for mv in v_ext_resp.values if 1500 <= mv <= 5000]
-                                cells.extend(valid_ext_v)
+                            temps_arr = [t for t in raw_temps if -40.0 <= t <= 125.0][:16]
 
                         if not cells:
                             cells = [round(v_pack / max(reported_cells, 16), 3)] * max(reported_cells, 16)
                         if not temps_arr:
                             temps_arr = [temp] * len(cells)
+
+                        reported_cells = len(cells)
 
                         min_v = min(cells)
                         max_v = max(cells)

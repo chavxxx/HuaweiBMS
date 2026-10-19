@@ -106,7 +106,7 @@ export const CellModuleMonitoringPage: React.FC<CellModuleMonitoringPageProps> =
           <span className="text-slate-500 uppercase text-[10px]">Active Balancing</span>
           <div className="text-2xl font-black text-cyan-400 mt-1 flex items-center gap-2">
             <span>{cells?.balancing_active?.filter(Boolean).length ?? 0}</span>
-            <span className="text-xs text-slate-400">/ 16 Cells</span>
+            <span className="text-xs text-slate-400">/ {voltages.length || 16} Cells</span>
           </div>
           <div className="text-[10px] text-slate-500 mt-1">Passive bleed resistors</div>
         </div>
@@ -117,7 +117,7 @@ export const CellModuleMonitoringPage: React.FC<CellModuleMonitoringPageProps> =
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-bold text-slate-200 text-sm font-mono flex items-center gap-2">
             <BatteryCharging className="w-4 h-4 text-cyan-400" />
-            <span>16-Cell Series Topology Visualizer</span>
+            <span>{voltages.length || 16}-Cell Series Topology Visualizer</span>
           </h3>
 
           <div className="flex items-center gap-3 text-xs font-mono">

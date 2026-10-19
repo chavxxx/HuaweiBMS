@@ -529,25 +529,10 @@ class TelemetryService:
                     if cells_resp.success and cells_resp.values:
                         # Valid physical cell voltage: 1500 mV to 5000 mV. Sentinel 65535 indicates unpopulated channel
                         valid_mv = [mv for mv in cells_resp.values if 1500 <= mv <= 5000]
-                        cell_voltages_v = [round(mv / 1000.0, 3) for mv in valid_mv]
+                        cell_voltages_v = [round(mv / 1000.0, 3) for mv in valid_mv[:16]]
 
-                    # Query extended cells if reported cell count exceeds 16 (e.g. 22-cell packs at Regs 768-773, 784-789)
-                    if self._hardware_reported_cell_count and self._hardware_reported_cell_count > 16:
-                        extra_count = min(self._hardware_reported_cell_count - 16, 8)
-                        time.sleep(delay)
-                        t_ext = adapter.build_read_holding_registers(slave_id, 768, extra_count)
-                        t_ext_resp = self.serial_client.execute_transaction(t_ext, 0x03)
-                        if t_ext_resp.success and t_ext_resp.values:
-                            r_ext_t = [float(t if t < 32768 else t - 65536) for t in t_ext_resp.values]
-                            temps_arr.extend([t for t in r_ext_t if -40.0 <= t <= 125.0])
-
-                        time.sleep(delay)
-                        v_ext = adapter.build_read_holding_registers(slave_id, 784, extra_count)
-                        v_ext_resp = self.serial_client.execute_transaction(v_ext, 0x03)
-                        if v_ext_resp.success and v_ext_resp.values:
-                            valid_ext_v = [round(mv / 1000.0, 3) for mv in v_ext_resp.values if 1500 <= mv <= 5000]
-                            cell_voltages_v.extend(valid_ext_v)
-
+                    # Physical temperature channels strictly up to 16 sensors
+                    temps_arr = temps_arr[:16]
                     if not temps_arr:
                         temps_arr = [temp_ambient, temp_bms]
 
@@ -612,14 +597,14 @@ class TelemetryService:
                             bl_ver = vals[2]      # Reg 259: Bootloader version (e.g. 102 -> V1.02, 100 -> V1.00)
                             sub_sw = vals[5]      # Reg 262: Sub-software ID (e.g. 205 -> V2.05, 201 -> V2.01)
                             rated_cap = vals[6]   # Reg 263: Rated Capacity (150 Ah)
-                            reported_cells = vals[14] # Reg 271: Reported Cell Count (11 or 22)
+                            reported_cells = vals[14] # Reg 271: Spec / Internal Code
 
                             self._hardware_firmware_version = f"V{sw_ver // 100}.{sw_ver % 100:02d}"
                             self._hardware_hardware_rev = f"Rev {hw_ver}"
                             self._hardware_bootloader_version = f"V{bl_ver // 100}.{bl_ver % 100:02d}"
                             self._hardware_rated_capacity = rated_cap if (10 <= rated_cap <= 1000) else 150
                             self._hardware_max_current = 150
-                            self._hardware_reported_cell_count = reported_cells
+                            self._hardware_reported_cell_count = len(cell_voltages_v) if cell_voltages_v else (reported_cells if reported_cells in (11, 15, 16) else 16)
                         else:
                             self._hardware_firmware_version = "V2.70"
                             self._hardware_hardware_rev = "Rev 69"
@@ -675,7 +660,7 @@ class TelemetryService:
                         "equivalent_full_cycles": equiv_cycles,
                         "rated_capacity_ah": rated_cap_ah,
                         "max_current_limit_a": self._hardware_max_current or 150,
-                        "reported_cell_count": self._hardware_reported_cell_count or len(cell_voltages_v),
+                        "reported_cell_count": len(cell_voltages_v) if cell_voltages_v else 16,
                         "slave_id": slave_id,
                         "battery_name": f"Battery #{slave_id}",
                     }
