@@ -15,7 +15,7 @@ from ..database.crud import AuditCRUD
 
 logger = logging.getLogger("huawei_bms.update_service")
 
-CURRENT_VERSION = "v1.0.5"
+CURRENT_VERSION = "v1.0.6"
 DEFAULT_REPO_OWNER = "chavxxx"
 DEFAULT_REPO_NAME = "HuaweiBMS"
 DEFAULT_REPO_URL = f"https://github.com/{DEFAULT_REPO_OWNER}/{DEFAULT_REPO_NAME}"
