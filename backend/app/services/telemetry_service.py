@@ -366,176 +366,253 @@ class TelemetryService:
             "cells": self.latest_cells
         })
 
+    def probe_and_detect_slave_id(self, preferred_id: int = 214) -> int:
+        """Probe the serial bus to verify preferred_id or discover the responding Huawei battery address."""
+        if not self.serial_client.is_connected or self.use_simulation:
+            return preferred_id
+
+        adapter = self.serial_client.adapter
+        # Candidates in priority order: preferred first, then common Huawei addresses
+        candidates = [preferred_id]
+        for cid in (214, 1, 2, 3, 4):
+            if cid not in candidates:
+                candidates.append(cid)
+
+        with self.serial_client.bus_lock:
+            for sid in candidates:
+                try:
+                    req = adapter.build_read_holding_registers(sid, 0x0000, 4)
+                    resp = self.serial_client.execute_transaction(req, 0x03)
+                    if resp.success and resp.values:
+                        logger.info("Probe found responding Huawei battery at Slave ID %d", sid)
+                        self.serial_client.config.slave_id = sid
+                        if hasattr(self, "multi_battery_service") and self.multi_battery_service:
+                            self.multi_battery_service.active_slave_id = sid
+                            self.multi_battery_service.add_battery(sid, f"Battery #{sid}")
+                        return sid
+                except Exception as e:
+                    logger.debug("Probe error on slave %d: %s", sid, e)
+                time.sleep(self.serial_client.config.inter_frame_delay)
+
+        return preferred_id
+
     def _poll_hardware_bms(self) -> None:
         """Poll real hardware BMS via serial adapter using documented and verified registers."""
+        if not self.serial_client.is_connected:
+            return
+
         now = time.time()
         slave_id = self.serial_client.config.slave_id
         adapter = self.serial_client.adapter
+        delay = self.serial_client.config.inter_frame_delay
 
-        try:
-            # First attempt: Huawei EMS / ESM Series register layout (Base 0x0000)
-            # Default for Huawei EMS-4805B1 (Slave 214 / 0xD6)
-            req_frame = adapter.build_read_holding_registers(slave_id, 0x0000, 8)
-            resp = self.serial_client.execute_transaction(req_frame, 0x03)
+        with self.serial_client.bus_lock:
+            try:
+                # First attempt: Huawei EMS / ESM Series register layout (Base 0x0000)
+                # Default for Huawei EMS-4805B1 (Slave 214 / 0xD6) or cascaded (Slave 1..16)
+                req_frame = adapter.build_read_holding_registers(slave_id, 0x0000, 8)
+                resp = self.serial_client.execute_transaction(req_frame, 0x03)
 
-            if resp.success and len(resp.values) >= 7:
-                words = resp.values
-                self.last_update_timestamp = now
+                # Auto-recovery: If current slave_id failed and we have no fresh data, test alternate common address
+                if not resp.success and self.last_update_timestamp == 0:
+                    alt_id = 1 if slave_id == 214 else 214
+                    alt_req = adapter.build_read_holding_registers(alt_id, 0x0000, 8)
+                    alt_resp = self.serial_client.execute_transaction(alt_req, 0x03)
+                    if alt_resp.success:
+                        logger.info("Auto-recovered: Switched active slave from %d to %d", slave_id, alt_id)
+                        slave_id = alt_id
+                        self.serial_client.config.slave_id = alt_id
+                        if hasattr(self, "multi_battery_service") and self.multi_battery_service:
+                            self.multi_battery_service.active_slave_id = alt_id
+                            self.multi_battery_service.add_battery(alt_id, f"Battery #{alt_id}")
+                        resp = alt_resp
 
-                # 1. Base telemetry registers 0x0000 - 0x0006
-                v_bus = round(words[0] * 0.01, 2)
-                v_pack = round(words[1] * 0.01, 2)
+                if resp.success and len(resp.values) >= 7:
+                    words = resp.values
+                    self.last_update_timestamp = now
 
-                raw_i = words[2]
-                signed_i = raw_i if raw_i < 32768 else raw_i - 65536
-                current = round(signed_i * 0.01, 2)
+                    # 1. Base telemetry registers 0x0000 - 0x0006
+                    v_bus = round(words[0] * 0.01, 2)
+                    v_pack = round(words[1] * 0.01, 2)
 
-                soc = round(float(words[3]), 1)
-                soh = round(float(words[4]), 1)
-                temp_ambient = float(words[5] if words[5] < 32768 else words[5] - 65536)
-                temp_bms = float(words[6] if words[6] < 32768 else words[6] - 65536)
-                pack_temp = temp_bms
+                    raw_i = words[2]
+                    signed_i = raw_i if raw_i < 32768 else raw_i - 65536
+                    current = round(signed_i * 0.01, 2)
 
-                # Power in kW (P = V * I / 1000)
-                power = round((v_pack * current) / 1000.0, 3)
+                    soc = round(float(words[3]), 1)
+                    soh = round(float(words[4]), 1)
+                    temp_ambient = float(words[5] if words[5] < 32768 else words[5] - 65536)
+                    temp_bms = float(words[6] if words[6] < 32768 else words[6] - 65536)
+                    pack_temp = temp_bms
 
-                # 2. Query status, alarm bitmask and permissions at 0x000A - 0x000F (6 registers)
-                status_words = []
-                status_req = adapter.build_read_holding_registers(slave_id, 0x000A, 6)
-                status_resp = self.serial_client.execute_transaction(status_req, 0x03)
-                if status_resp.success:
-                    status_words = status_resp.values
+                    # Power in kW (P = V * I / 1000)
+                    power = round((v_pack * current) / 1000.0, 3)
 
-                module_online = status_words[0] if len(status_words) > 0 else 1
-                alarm_mask = status_words[1] if len(status_words) > 1 else 0
-                sub_state = status_words[3] if len(status_words) > 3 else 0
-                op_mode_raw = status_words[4] if len(status_words) > 4 else 2  # Reg 14: 0hib, 1lowpwr, 2chg, 3dis, 4stby
-                permission_flags = status_words[5] if len(status_words) > 5 else 3  # Reg 15
+                    time.sleep(delay)
 
-                # Decode active alarms from bitmask and Regs 70-74
-                active_alarms = []
-                if alarm_mask != 0:
-                    for bit_idx in range(16):
-                        if (alarm_mask >> bit_idx) & 1:
-                            active_alarms.append(f"ALARM_BIT_{bit_idx}")
+                    # 2. Query status, alarm bitmask and permissions at 0x000A - 0x000F (6 registers)
+                    status_words = []
+                    status_req = adapter.build_read_holding_registers(slave_id, 0x000A, 6)
+                    status_resp = self.serial_client.execute_transaction(status_req, 0x03)
+                    if status_resp.success:
+                        status_words = status_resp.values
 
-                alarm_req = adapter.build_read_holding_registers(slave_id, 70, 5)
-                alarm_resp = self.serial_client.execute_transaction(alarm_req, 0x03)
-                if alarm_resp.success and len(alarm_resp.values) == 5:
-                    crit1, crit2, maj, minr, mod_al = alarm_resp.values
-                    if crit1: active_alarms.append(f"CRITICAL_1:0x{crit1:04X}")
-                    if crit2: active_alarms.append(f"CRITICAL_2:0x{crit2:04X}")
-                    if maj: active_alarms.append(f"MAJOR:0x{maj:04X}")
-                    if minr: active_alarms.append(f"MINOR:0x{minr:04X}")
-                    if mod_al: active_alarms.append(f"MODULE:0x{mod_al:04X}")
+                    module_online = status_words[0] if len(status_words) > 0 else 1
+                    alarm_mask = status_words[1] if len(status_words) > 1 else 0
+                    sub_state = status_words[3] if len(status_words) > 3 else 0
+                    op_mode_raw = status_words[4] if len(status_words) > 4 else 2  # Reg 14: 0hib, 1lowpwr, 2chg, 3dis, 4stby
+                    permission_flags = status_words[5] if len(status_words) > 5 else 3  # Reg 15
 
-                # Operating state string mapped from Reg 14
-                mode_map = {0: "Hibernate", 1: "Low Power", 2: "Charging", 3: "Discharging", 4: "Standby"}
-                if active_alarms:
-                    state_str = "Fault"
-                elif op_mode_raw in mode_map:
-                    state_str = mode_map[op_mode_raw]
-                elif current > 0.05:
-                    state_str = "Charging"
-                elif current < -0.05:
-                    state_str = "Discharging"
-                else:
-                    state_str = "Standby"
+                    time.sleep(delay)
 
-                # 3. Query individual Cell Temperatures at Regs 18 - 33 (0x0012, up to 16 sensors)
-                temps_arr = []
-                temps_req = adapter.build_read_holding_registers(slave_id, 18, 16)
-                temps_resp = self.serial_client.execute_transaction(temps_req, 0x03)
-                if temps_resp.success and temps_resp.values:
-                    # Valid physical temps: -40°C to 125°C. Sentinel 64537 (-999) indicates unpopulated channel
-                    raw_temps = [float(t if t < 32768 else t - 65536) for t in temps_resp.values]
-                    temps_arr = [t for t in raw_temps if -40.0 <= t <= 125.0]
+                    # Decode active alarms from bitmask and Regs 70-74
+                    active_alarms = []
+                    if alarm_mask != 0:
+                        for bit_idx in range(16):
+                            if (alarm_mask >> bit_idx) & 1:
+                                active_alarms.append(f"ALARM_BIT_{bit_idx}")
 
-                # 4. Query individual Series Cell Voltages at Regs 34 - 49 (0x0022, up to 16 cells)
-                cell_voltages_v = []
-                cells_req = adapter.build_read_holding_registers(slave_id, 34, 16)
-                cells_resp = self.serial_client.execute_transaction(cells_req, 0x03)
-                if cells_resp.success and cells_resp.values:
-                    # Valid physical cell voltage: 1500 mV to 5000 mV. Sentinel 65535 indicates unpopulated channel
-                    valid_mv = [mv for mv in cells_resp.values if 1500 <= mv <= 5000]
-                    cell_voltages_v = [round(mv / 1000.0, 3) for mv in valid_mv]
+                    alarm_req = adapter.build_read_holding_registers(slave_id, 70, 5)
+                    alarm_resp = self.serial_client.execute_transaction(alarm_req, 0x03)
+                    if alarm_resp.success and len(alarm_resp.values) == 5:
+                        crit1, crit2, maj, minr, mod_al = alarm_resp.values
+                        if crit1: active_alarms.append(f"CRITICAL_1:0x{crit1:04X}")
+                        if crit2: active_alarms.append(f"CRITICAL_2:0x{crit2:04X}")
+                        if maj: active_alarms.append(f"MAJOR:0x{maj:04X}")
+                        if minr: active_alarms.append(f"MINOR:0x{minr:04X}")
+                        if mod_al: active_alarms.append(f"MODULE:0x{mod_al:04X}")
 
-                # Query extended cells if reported cell count exceeds 16 (e.g. 22-cell packs at Regs 768-773, 784-789)
-                if self._hardware_reported_cell_count and self._hardware_reported_cell_count > 16:
-                    extra_count = min(self._hardware_reported_cell_count - 16, 8)
-                    t_ext = adapter.build_read_holding_registers(slave_id, 768, extra_count)
-                    t_ext_resp = self.serial_client.execute_transaction(t_ext, 0x03)
-                    if t_ext_resp.success and t_ext_resp.values:
-                        r_ext_t = [float(t if t < 32768 else t - 65536) for t in t_ext_resp.values]
-                        temps_arr.extend([t for t in r_ext_t if -40.0 <= t <= 125.0])
+                    # Operating state string mapped from Reg 14
+                    mode_map = {0: "Hibernate", 1: "Low Power", 2: "Charging", 3: "Discharging", 4: "Standby"}
+                    if active_alarms:
+                        state_str = "Fault"
+                    elif op_mode_raw in mode_map:
+                        state_str = mode_map[op_mode_raw]
+                    elif current > 0.05:
+                        state_str = "Charging"
+                    elif current < -0.05:
+                        state_str = "Discharging"
+                    else:
+                        state_str = "Standby"
 
-                    v_ext = adapter.build_read_holding_registers(slave_id, 784, extra_count)
-                    v_ext_resp = self.serial_client.execute_transaction(v_ext, 0x03)
-                    if v_ext_resp.success and v_ext_resp.values:
-                        valid_ext_v = [round(mv / 1000.0, 3) for mv in v_ext_resp.values if 1500 <= mv <= 5000]
-                        cell_voltages_v.extend(valid_ext_v)
+                    time.sleep(delay)
 
-                if not temps_arr:
-                    temps_arr = [temp_ambient, temp_bms]
+                    # 3. Query individual Cell Temperatures at Regs 18 - 33 (0x0012, up to 16 sensors)
+                    temps_arr = []
+                    temps_req = adapter.build_read_holding_registers(slave_id, 18, 16)
+                    temps_resp = self.serial_client.execute_transaction(temps_req, 0x03)
+                    if temps_resp.success and temps_resp.values:
+                        # Valid physical temps: -40°C to 125°C. Sentinel 64537 (-999) indicates unpopulated channel
+                        raw_temps = [float(t if t < 32768 else t - 65536) for t in temps_resp.values]
+                        temps_arr = [t for t in raw_temps if -40.0 <= t <= 125.0]
 
-                # 5. Query 32-bit Discharge Counter (Regs 66-67) and Lifetime Discharged Capacity in Ah (Regs 68-69)
-                if self._hardware_discharge_cycles is None or self._hardware_discharged_ah is None:
-                    count_req = adapter.build_read_holding_registers(slave_id, 66, 4)
-                    count_resp = self.serial_client.execute_transaction(count_req, 0x03)
-                    if count_resp.success and len(count_resp.values) == 4:
-                        w = count_resp.values
-                        self._hardware_discharge_cycles = (w[0] << 16) | w[1]
-                        self._hardware_discharged_ah = (w[2] << 16) | w[3]
-                        self._hardware_cycle_count = self._hardware_discharge_cycles
+                    time.sleep(delay)
 
-                # 6. Query Hardware Identity & Specs (once per connection)
-                if self._hardware_device_model is None:
-                    # Model Name at Regs 818-823 (0x0332, length 6)
-                    model_req = adapter.build_read_holding_registers(slave_id, 818, 6)
-                    model_resp = self.serial_client.execute_transaction(model_req, 0x03)
-                    if model_resp.success and len(model_resp.values) == 6:
-                        raw_model = decode_ascii_registers(model_resp.values)
-                        if raw_model:
-                            self._hardware_device_model = f"Huawei {raw_model}"
-                    if not self._hardware_device_model:
-                        self._hardware_device_model = "Huawei ESM-48150B1"
+                    # 4. Query individual Series Cell Voltages at Regs 34 - 49 (0x0022, up to 16 cells)
+                    cell_voltages_v = []
+                    cells_req = adapter.build_read_holding_registers(slave_id, 34, 16)
+                    cells_resp = self.serial_client.execute_transaction(cells_req, 0x03)
+                    if cells_resp.success and cells_resp.values:
+                        # Valid physical cell voltage: 1500 mV to 5000 mV. Sentinel 65535 indicates unpopulated channel
+                        valid_mv = [mv for mv in cells_resp.values if 1500 <= mv <= 5000]
+                        cell_voltages_v = [round(mv / 1000.0, 3) for mv in valid_mv]
 
-                    # Barcode Serial Number at Regs 529-534 (0x0211, length 6)
-                    sn_req = adapter.build_read_holding_registers(slave_id, 529, 6)
-                    sn_resp = self.serial_client.execute_transaction(sn_req, 0x03)
-                    if sn_resp.success and len(sn_resp.values) == 6:
-                        raw_sn = decode_ascii_registers(sn_resp.values)
-                        if raw_sn:
-                            self._hardware_serial_number = raw_sn
-                    if not self._hardware_serial_number:
-                        self._hardware_serial_number = f"HW-ESM-{slave_id:02X}"
+                    # Query extended cells if reported cell count exceeds 16 (e.g. 22-cell packs at Regs 768-773, 784-789)
+                    if self._hardware_reported_cell_count and self._hardware_reported_cell_count > 16:
+                        extra_count = min(self._hardware_reported_cell_count - 16, 8)
+                        time.sleep(delay)
+                        t_ext = adapter.build_read_holding_registers(slave_id, 768, extra_count)
+                        t_ext_resp = self.serial_client.execute_transaction(t_ext, 0x03)
+                        if t_ext_resp.success and t_ext_resp.values:
+                            r_ext_t = [float(t if t < 32768 else t - 65536) for t in t_ext_resp.values]
+                            temps_arr.extend([t for t in r_ext_t if -40.0 <= t <= 125.0])
 
-                    # Manufacture Date at Regs 836-838 (0x0344, length 3)
-                    date_req = adapter.build_read_holding_registers(slave_id, 836, 3)
-                    date_resp = self.serial_client.execute_transaction(date_req, 0x03)
-                    if date_resp.success and len(date_resp.values) == 3:
-                        y, m, d = date_resp.values
-                        if 2000 <= y <= 2099 and 1 <= m <= 12 and 1 <= d <= 31:
-                            self._hardware_mfg_date = f"{y:04d}-{m:02d}-{d:02d}"
+                        time.sleep(delay)
+                        v_ext = adapter.build_read_holding_registers(slave_id, 784, extra_count)
+                        v_ext_resp = self.serial_client.execute_transaction(v_ext, 0x03)
+                        if v_ext_resp.success and v_ext_resp.values:
+                            valid_ext_v = [round(mv / 1000.0, 3) for mv in v_ext_resp.values if 1500 <= mv <= 5000]
+                            cell_voltages_v.extend(valid_ext_v)
 
-                    # System Specifications at Regs 257..271 (15 registers)
-                    specs_req = adapter.build_read_holding_registers(slave_id, 257, 15)
-                    specs_resp = self.serial_client.execute_transaction(specs_req, 0x03)
-                    if specs_resp.success and len(specs_resp.values) >= 15:
-                        vals = specs_resp.values
-                        sw_ver = vals[0]      # Reg 257: Software version (e.g. 270 -> V2.70, 267 -> V2.67)
-                        hw_ver = vals[1]      # Reg 258: Hardware version (e.g. 69 -> Rev 69, 65 -> Rev 65)
-                        bl_ver = vals[2]      # Reg 259: Bootloader version (e.g. 102 -> V1.02, 100 -> V1.00)
-                        sub_sw = vals[5]      # Reg 262: Sub-software ID (e.g. 205 -> V2.05, 201 -> V2.01)
-                        rated_cap = vals[6]   # Reg 263: Rated Capacity (150 Ah)
-                        reported_cells = vals[14] # Reg 271: Reported Cell Count (11 or 22)
+                    if not temps_arr:
+                        temps_arr = [temp_ambient, temp_bms]
 
-                        self._hardware_firmware_version = f"V{sw_ver // 100}.{sw_ver % 100:02d}"
-                        self._hardware_hardware_rev = f"Rev {hw_ver}"
-                        self._hardware_bootloader_version = f"V{bl_ver // 100}.{bl_ver % 100:02d}"
-                        self._hardware_rated_capacity = rated_cap if (10 <= rated_cap <= 1000) else 150
-                        self._hardware_max_current = 150
-                        self._hardware_reported_cell_count = reported_cells
+                    # 5. Query 32-bit Discharge Counter (Regs 66-67) and Lifetime Discharged Capacity in Ah (Regs 68-69)
+                    if self._hardware_discharge_cycles is None or self._hardware_discharged_ah is None:
+                        time.sleep(delay)
+                        count_req = adapter.build_read_holding_registers(slave_id, 66, 4)
+                        count_resp = self.serial_client.execute_transaction(count_req, 0x03)
+                        if count_resp.success and len(count_resp.values) == 4:
+                            w = count_resp.values
+                            self._hardware_discharge_cycles = (w[0] << 16) | w[1]
+                            self._hardware_discharged_ah = (w[2] << 16) | w[3]
+                            self._hardware_cycle_count = self._hardware_discharge_cycles
+                        else:
+                            self._hardware_discharge_cycles = 0
+                            self._hardware_discharged_ah = 0
+                            self._hardware_cycle_count = 0
+
+                    # 6. Query Hardware Identity & Specs (once per connection)
+                    if self._hardware_device_model is None:
+                        time.sleep(delay)
+                        # Model Name at Regs 818-823 (0x0332, length 6)
+                        model_req = adapter.build_read_holding_registers(slave_id, 818, 6)
+                        model_resp = self.serial_client.execute_transaction(model_req, 0x03)
+                        if model_resp.success and len(model_resp.values) == 6:
+                            raw_model = decode_ascii_registers(model_resp.values)
+                            if raw_model:
+                                self._hardware_device_model = f"Huawei {raw_model}"
+                        if not self._hardware_device_model:
+                            self._hardware_device_model = "Huawei ESM-48150B1"
+
+                        time.sleep(delay)
+                        # Barcode Serial Number at Regs 529-534 (0x0211, length 6)
+                        sn_req = adapter.build_read_holding_registers(slave_id, 529, 6)
+                        sn_resp = self.serial_client.execute_transaction(sn_req, 0x03)
+                        if sn_resp.success and len(sn_resp.values) == 6:
+                            raw_sn = decode_ascii_registers(sn_resp.values)
+                            if raw_sn:
+                                self._hardware_serial_number = raw_sn
+                        if not self._hardware_serial_number:
+                            self._hardware_serial_number = f"HW-ESM-{slave_id:02X}"
+
+                        time.sleep(delay)
+                        # Manufacture Date at Regs 836-838 (0x0344, length 3)
+                        date_req = adapter.build_read_holding_registers(slave_id, 836, 3)
+                        date_resp = self.serial_client.execute_transaction(date_req, 0x03)
+                        if date_resp.success and len(date_resp.values) == 3:
+                            y, m, d = date_resp.values
+                            if 2000 <= y <= 2099 and 1 <= m <= 12 and 1 <= d <= 31:
+                                self._hardware_mfg_date = f"{y:04d}-{m:02d}-{d:02d}"
+                        if not self._hardware_mfg_date:
+                            self._hardware_mfg_date = "N/A"
+
+                        time.sleep(delay)
+                        # System Specifications at Regs 257..271 (15 registers)
+                        specs_req = adapter.build_read_holding_registers(slave_id, 257, 15)
+                        specs_resp = self.serial_client.execute_transaction(specs_req, 0x03)
+                        if specs_resp.success and len(specs_resp.values) >= 15:
+                            vals = specs_resp.values
+                            sw_ver = vals[0]      # Reg 257: Software version (e.g. 270 -> V2.70, 267 -> V2.67)
+                            hw_ver = vals[1]      # Reg 258: Hardware version (e.g. 69 -> Rev 69, 65 -> Rev 65)
+                            bl_ver = vals[2]      # Reg 259: Bootloader version (e.g. 102 -> V1.02, 100 -> V1.00)
+                            sub_sw = vals[5]      # Reg 262: Sub-software ID (e.g. 205 -> V2.05, 201 -> V2.01)
+                            rated_cap = vals[6]   # Reg 263: Rated Capacity (150 Ah)
+                            reported_cells = vals[14] # Reg 271: Reported Cell Count (11 or 22)
+
+                            self._hardware_firmware_version = f"V{sw_ver // 100}.{sw_ver % 100:02d}"
+                            self._hardware_hardware_rev = f"Rev {hw_ver}"
+                            self._hardware_bootloader_version = f"V{bl_ver // 100}.{bl_ver % 100:02d}"
+                            self._hardware_rated_capacity = rated_cap if (10 <= rated_cap <= 1000) else 150
+                            self._hardware_max_current = 150
+                            self._hardware_reported_cell_count = reported_cells
+                        else:
+                            self._hardware_firmware_version = "V2.70"
+                            self._hardware_hardware_rev = "Rev 69"
+                            self._hardware_bootloader_version = "V1.02"
+                            self._hardware_rated_capacity = 150
+                            self._hardware_max_current = 150
+
 
                 # Cell metrics
                 if cell_voltages_v:
@@ -643,90 +720,91 @@ class TelemetryService:
                 })
                 return
 
-            # Fallback attempt: Huawei LUNA2000 / ESS Residential register layout (Base 37000)
-            req_frame = adapter.build_read_holding_registers(slave_id, 37000, 28)
-            resp = self.serial_client.execute_transaction(req_frame, 0x03)
+                # Fallback attempt: Huawei LUNA2000 / ESS Residential register layout (Base 37000)
+                req_frame = adapter.build_read_holding_registers(slave_id, 37000, 28)
+                resp = self.serial_client.execute_transaction(req_frame, 0x03)
 
-            if not resp.success:
-                logger.warning("Hardware poll failed on both EMS (0x0000) and ESS (37000): %s", resp.error_message)
-                return
+                if not resp.success:
+                    logger.warning("Hardware poll failed on both EMS (0x0000) and ESS (37000): %s", resp.error_message)
+                    return
 
-            words = resp.values
-            self.last_update_timestamp = now
+                words = resp.values
+                self.last_update_timestamp = now
 
-            status = words[0] if len(words) > 0 else 0
-            mode = words[1] if len(words) > 1 else 0
-            v_pack = round(words[2] * 0.1, 1) if len(words) > 2 else 0.0
+                status = words[0] if len(words) > 0 else 0
+                mode = words[1] if len(words) > 1 else 0
+                v_pack = round(words[2] * 0.1, 1) if len(words) > 2 else 0.0
 
-            raw_i = words[3] if len(words) > 3 else 0
-            signed_i = raw_i if raw_i < 32768 else raw_i - 65536
-            current = round(signed_i * 0.1, 1)
+                raw_i = words[3] if len(words) > 3 else 0
+                signed_i = raw_i if raw_i < 32768 else raw_i - 65536
+                current = round(signed_i * 0.1, 1)
 
-            raw_p = (words[4] << 16) | words[5] if len(words) > 5 else 0
-            signed_p = raw_p if raw_p < 2147483648 else raw_p - 4294967296
-            power = round(signed_p / 1000.0, 3)
+                raw_p = (words[4] << 16) | words[5] if len(words) > 5 else 0
+                signed_p = raw_p if raw_p < 2147483648 else raw_p - 4294967296
+                power = round(signed_p / 1000.0, 3)
 
-            soc = round(words[14] * 0.1, 1) if len(words) > 14 else 0.0
-            soh = round(words[15] * 0.1, 1) if len(words) > 15 else 0.0
+                soc = round(words[14] * 0.1, 1) if len(words) > 14 else 0.0
+                soh = round(words[15] * 0.1, 1) if len(words) > 15 else 0.0
 
-            raw_t = words[26] if len(words) > 26 else 0
-            signed_t = raw_t if raw_t < 32768 else raw_t - 65536
-            temp = round(signed_t * 0.1, 1)
+                raw_t = words[26] if len(words) > 26 else 0
+                signed_t = raw_t if raw_t < 32768 else raw_t - 65536
+                temp = round(signed_t * 0.1, 1)
 
-            modules_cnt = words[27] if len(words) > 27 else 1
+                modules_cnt = words[27] if len(words) > 27 else 1
 
-            self.latest_telemetry = {
-                "timestamp": now,
-                "device_model": "Huawei ESS / LUNA2000 (Physical)",
-                "serial_number": "HW-REAL-RS485",
-                "firmware_version": "V100R002",
-                "is_simulation": False,
-                "identification_verified": True,
-                "soc": soc,
-                "soh": soh,
-                "total_voltage": v_pack,
-                "current": current,
-                "power": power,
-                "temperature": temp,
-                "bms_status": status,
-                "operating_state": "Running" if status == 2 else "Standby",
-                "working_mode": mode,
-                "online_modules_count": modules_cnt,
-                "charge_permission": soc < 100.0,
-                "discharge_permission": soc > 5.0,
-                "active_alarm_codes": [],
-            }
-
-            self.latest_electrical = {
-                "timestamp": now,
-                "total_voltage": v_pack,
-                "current": current,
-                "charge_power": abs(power) if power < 0 else 0.0,
-                "discharge_power": power if power > 0 else 0.0,
-                "dc_bus_voltage": v_pack,
-                "charge_energy": 0.0,
-                "discharge_energy": 0.0,
-                "max_charge_power_limit": 5000.0,
-                "max_discharge_power_limit": 5000.0,
-                "contactor_state": "Closed" if status == 2 else "Open",
-                "precharge_state": "Completed",
-                "insulation_resistance_kohm": 2500.0,
-                "calculated_metrics": {
-                    "power_is_calculated": True,
-                    "power_formula": "P = V * I / 1000 kW"
+                self.latest_telemetry = {
+                    "timestamp": now,
+                    "device_model": "Huawei ESS / LUNA2000 (Physical)",
+                    "serial_number": "HW-REAL-RS485",
+                    "firmware_version": "V100R002",
+                    "is_simulation": False,
+                    "identification_verified": True,
+                    "soc": soc,
+                    "soh": soh,
+                    "total_voltage": v_pack,
+                    "current": current,
+                    "power": power,
+                    "temperature": temp,
+                    "bms_status": status,
+                    "operating_state": "Running" if status == 2 else "Standby",
+                    "working_mode": mode,
+                    "online_modules_count": modules_cnt,
+                    "charge_permission": soc < 100.0,
+                    "discharge_permission": soc > 5.0,
+                    "active_alarm_codes": [],
                 }
-            }
 
-            self._notify_listeners({
-                "type": "TELEMETRY_UPDATE",
-                "freshness": self.get_freshness_status(),
-                "telemetry": self.latest_telemetry,
-                "electrical": self.latest_electrical,
-                "cells": self.latest_cells
-            })
+                self.latest_electrical = {
+                    "timestamp": now,
+                    "total_voltage": v_pack,
+                    "current": current,
+                    "charge_power": abs(power) if power < 0 else 0.0,
+                    "discharge_power": power if power > 0 else 0.0,
+                    "dc_bus_voltage": v_pack,
+                    "charge_energy": 0.0,
+                    "discharge_energy": 0.0,
+                    "max_charge_power_limit": 5000.0,
+                    "max_discharge_power_limit": 5000.0,
+                    "contactor_state": "Closed" if status == 2 else "Open",
+                    "precharge_state": "Completed",
+                    "insulation_resistance_kohm": 2500.0,
+                    "calculated_metrics": {
+                        "power_is_calculated": True,
+                        "power_formula": "P = V * I / 1000 kW"
+                    }
+                }
 
-        except Exception as e:
-            logger.error("Error reading hardware BMS telemetry: %s", e)
+                self._notify_listeners({
+                    "type": "TELEMETRY_UPDATE",
+                    "freshness": self.get_freshness_status(),
+                    "telemetry": self.latest_telemetry,
+                    "electrical": self.latest_electrical,
+                    "cells": self.latest_cells
+                })
+
+            except Exception as e:
+                logger.error("Error reading hardware BMS telemetry: %s", e)
+
 
     def _empty_telemetry(self) -> dict[str, Any]:
         return {

@@ -73,7 +73,7 @@ export const BatteryComparisonPage: React.FC<BatteryComparisonPageProps> = ({
   const [scannerOpen, setScannerOpen] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [scanResult, setScanResult] = useState<any | null>(null)
-  const [candidateInput, setCandidateInput] = useState('1, 2, 3, 4, 214, 215')
+  const [candidateInput, setCandidateInput] = useState('214, 1, 2, 3, 4')
   const [newSlaveId, setNewSlaveId] = useState<number>(5)
   const [newBatteryName, setNewBatteryName] = useState<string>('')
 
@@ -523,6 +523,15 @@ export const BatteryComparisonPage: React.FC<BatteryComparisonPageProps> = ({
                             Active
                           </span>
                         )}
+                        {!b.online ? (
+                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-950/80 text-rose-300 border border-rose-800 font-bold">
+                            Offline
+                          </span>
+                        ) : (
+                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-800 font-bold">
+                            Online
+                          </span>
+                        )}
                       </div>
                       <div className="text-[11px] text-slate-400 font-mono mt-0.5">
                         {b.model} · <span className="text-slate-300">{b.serial_number}</span>
@@ -539,106 +548,123 @@ export const BatteryComparisonPage: React.FC<BatteryComparisonPageProps> = ({
                     </div>
                   </div>
 
-                  {/* SOC & SOH Hero */}
-                  <div className="pt-3 space-y-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-slate-400">State of Charge (SOC):</span>
-                      <span className="font-bold text-cyan-400 text-sm">{b.soc}%</span>
+                  {!b.online ? (
+                    <div className="py-6 px-3 my-2 bg-slate-950/60 border border-slate-800/80 rounded-xl text-center space-y-1.5">
+                      <div className="text-slate-300 font-bold text-xs flex items-center justify-center gap-1.5">
+                        <AlertCircle className="w-4 h-4 text-rose-400" />
+                        <span>Unresponsive / Offline</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
+                        Pack at Slave ID {b.slave_id} did not respond to RS485 Modbus query (timeout).
+                      </p>
+                      <div className="text-[10px] text-cyan-400/80 pt-1">
+                        Check RJ45 bus cable &amp; DIP switch settings.
+                      </div>
                     </div>
-                    {/* SOC progress bar */}
-                    <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
-                      <div
-                        className="bg-gradient-to-r from-cyan-500 to-blue-500 h-full rounded-full transition-all duration-500"
-                        style={{ width: `${Math.min(100, Math.max(0, b.soc))}%` }}
-                      />
-                    </div>
+                  ) : (
+                    <>
+                      {/* SOC & SOH Hero */}
+                      <div className="pt-3 space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-slate-400">State of Charge (SOC):</span>
+                          <span className="font-bold text-cyan-400 text-sm">{b.soc}%</span>
+                        </div>
+                        {/* SOC progress bar */}
+                        <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
+                          <div
+                            className="bg-gradient-to-r from-cyan-500 to-blue-500 h-full rounded-full transition-all duration-500"
+                            style={{ width: `${Math.min(100, Math.max(0, b.soc))}%` }}
+                          />
+                        </div>
 
-                    <div className="flex items-center justify-between text-xs pt-1">
-                      <span className="text-slate-400">Health (SOH):</span>
-                      <span className="font-bold text-emerald-400">{b.soh}%</span>
-                    </div>
-                  </div>
+                        <div className="flex items-center justify-between text-xs pt-1">
+                          <span className="text-slate-400">Health (SOH):</span>
+                          <span className="font-bold text-emerald-400">{b.soh}%</span>
+                        </div>
+                      </div>
 
-                  {/* Electrical Metrics Grid */}
-                  <div className="grid grid-cols-2 gap-2 pt-3 text-xs border-t border-slate-800/80 mt-3 font-mono">
-                    <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800/60">
-                      <span className="text-[10px] text-slate-400 block">Pack Voltage</span>
-                      <span className="font-bold text-slate-100">
-                        {b.total_voltage} V
-                        {b.bus_delta_v !== undefined && (
-                          <span className="text-[9px] text-cyan-400 ml-1">
-                            ({b.bus_delta_v > 0 ? '+' : ''}{b.bus_delta_v}V)
+                      {/* Electrical Metrics Grid */}
+                      <div className="grid grid-cols-2 gap-2 pt-3 text-xs border-t border-slate-800/80 mt-3 font-mono">
+                        <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800/60">
+                          <span className="text-[10px] text-slate-400 block">Pack Voltage</span>
+                          <span className="font-bold text-slate-100">
+                            {b.total_voltage} V
+                            {b.bus_delta_v !== undefined && (
+                              <span className="text-[9px] text-cyan-400 ml-1">
+                                ({b.bus_delta_v > 0 ? '+' : ''}{b.bus_delta_v}V)
+                              </span>
+                            )}
                           </span>
-                        )}
-                      </span>
-                    </div>
+                        </div>
 
-                    <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800/60">
-                      <span className="text-[10px] text-slate-400 block">String Current</span>
-                      <span className={`font-bold ${b.current < 0 ? 'text-emerald-400' : 'text-slate-100'}`}>
-                        {b.current} A
-                      </span>
-                    </div>
+                        <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800/60">
+                          <span className="text-[10px] text-slate-400 block">String Current</span>
+                          <span className={`font-bold ${b.current < 0 ? 'text-emerald-400' : 'text-slate-100'}`}>
+                            {b.current} A
+                          </span>
+                        </div>
 
-                    <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800/60">
-                      <span className="text-[10px] text-slate-400 block">Cell Delta V</span>
-                      <span className={`font-bold ${isImbalanced ? 'text-amber-400' : 'text-emerald-400'}`}>
-                        {b.cell_voltage_delta_mv} mV
-                      </span>
-                    </div>
+                        <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800/60">
+                          <span className="text-[10px] text-slate-400 block">Cell Delta V</span>
+                          <span className={`font-bold ${isImbalanced ? 'text-amber-400' : 'text-emerald-400'}`}>
+                            {b.cell_voltage_delta_mv} mV
+                          </span>
+                        </div>
 
-                    <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800/60">
-                      <span className="text-[10px] text-slate-400 block">Max Temp</span>
-                      <span className="font-bold text-slate-100">{b.max_cell_temp ?? b.temperature} °C</span>
-                    </div>
-                  </div>
+                        <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800/60">
+                          <span className="text-[10px] text-slate-400 block">Max Temp</span>
+                          <span className="font-bold text-slate-100">{b.max_cell_temp ?? b.temperature} °C</span>
+                        </div>
+                      </div>
 
-                  {/* Capability & Lock Badges */}
-                  <div className="pt-3 space-y-1.5 text-[11px] font-mono">
-                    <div className="flex items-center justify-between text-slate-400">
-                      <span>Anti-Theft Lock:</span>
-                      {isLocked ? (
-                        <span className="flex items-center gap-1 text-rose-400 font-bold">
-                          <Lock className="w-3 h-3" />
-                          <span>LOCKED</span>
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1 text-emerald-400">
-                          <Unlock className="w-3 h-3" />
-                          <span>UNLOCKED</span>
-                        </span>
-                      )}
-                    </div>
+                      {/* Capability & Lock Badges */}
+                      <div className="pt-3 space-y-1.5 text-[11px] font-mono">
+                        <div className="flex items-center justify-between text-slate-400">
+                          <span>Anti-Theft Lock:</span>
+                          {isLocked ? (
+                            <span className="flex items-center gap-1 text-rose-400 font-bold">
+                              <Lock className="w-3 h-3" />
+                              <span>LOCKED</span>
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-emerald-400">
+                              <Unlock className="w-3 h-3" />
+                              <span>UNLOCKED</span>
+                            </span>
+                          )}
+                        </div>
 
-                    <div className="flex items-center justify-between text-slate-400">
-                      <span>Rated Capacity:</span>
-                      <span className="text-slate-200 font-bold">
-                        {b.rated_capacity_ah ?? 150} Ah
-                      </span>
-                    </div>
+                        <div className="flex items-center justify-between text-slate-400">
+                          <span>Rated Capacity:</span>
+                          <span className="text-slate-200 font-bold">
+                            {b.rated_capacity_ah ?? 150} Ah
+                          </span>
+                        </div>
 
-                    <div className="flex items-center justify-between text-slate-400">
-                      <span>Lifetime Discharged:</span>
-                      <span className="text-cyan-300 font-bold">
-                        {b.discharged_capacity_ah !== undefined ? `${b.discharged_capacity_ah.toLocaleString()} Ah` : '—'}
-                      </span>
-                    </div>
+                        <div className="flex items-center justify-between text-slate-400">
+                          <span>Lifetime Discharged:</span>
+                          <span className="text-cyan-300 font-bold">
+                            {b.discharged_capacity_ah !== undefined ? `${b.discharged_capacity_ah.toLocaleString()} Ah` : '—'}
+                          </span>
+                        </div>
 
-                    <div className="flex items-center justify-between text-slate-400">
-                      <span>Equiv Full Cycles:</span>
-                      <span className="text-slate-200 font-bold">
-                        {b.equivalent_full_cycles !== undefined ? `${b.equivalent_full_cycles} cyc` : `${b.cycle_count} ev`}
-                        <span className="text-[10px] text-slate-500 font-normal ml-1">({b.cycle_count} ev)</span>
-                      </span>
-                    </div>
+                        <div className="flex items-center justify-between text-slate-400">
+                          <span>Equiv Full Cycles:</span>
+                          <span className="text-slate-200 font-bold">
+                            {b.equivalent_full_cycles !== undefined ? `${b.equivalent_full_cycles} cyc` : `${b.cycle_count} ev`}
+                            <span className="text-[10px] text-slate-500 font-normal ml-1">({b.cycle_count} ev)</span>
+                          </span>
+                        </div>
 
-                    <div className="flex items-center justify-between text-slate-400">
-                      <span>Charge Limit:</span>
-                      <span className="text-slate-200 font-bold">
-                        {b.parameters?.charge_limit_a ?? 50.0} A ({b.parameters?.charge_limit_c ?? 0.5}C)
-                      </span>
-                    </div>
-                  </div>
+                        <div className="flex items-center justify-between text-slate-400">
+                          <span>Charge Limit:</span>
+                          <span className="text-slate-200 font-bold">
+                            {b.parameters?.charge_limit_a ?? 50.0} A ({b.parameters?.charge_limit_c ?? 0.5}C)
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Card Actions */}
@@ -732,6 +758,15 @@ export const BatteryComparisonPage: React.FC<BatteryComparisonPageProps> = ({
                             Active
                           </span>
                         )}
+                        {!b.online ? (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-rose-950/80 text-rose-300 border border-rose-800 font-bold">
+                            Offline
+                          </span>
+                        ) : (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-800 font-bold">
+                            Online
+                          </span>
+                        )}
                       </td>
                       <td className="py-3 px-3 text-slate-300 font-bold">{b.slave_id}</td>
                       <td className="py-3 px-3 text-slate-300">
@@ -741,45 +776,65 @@ export const BatteryComparisonPage: React.FC<BatteryComparisonPageProps> = ({
                         </div>
                       </td>
                       <td className="py-3 px-3 text-slate-400">{b.serial_number}</td>
-                      <td className="py-3 px-3 text-right text-cyan-400 font-bold">{b.soc}%</td>
-                      <td className="py-3 px-3 text-right text-emerald-400 font-bold">{b.soh}%</td>
+                      <td className="py-3 px-3 text-right font-bold">
+                        {b.online ? <span className="text-cyan-400">{b.soc}%</span> : <span className="text-slate-500">—</span>}
+                      </td>
+                      <td className="py-3 px-3 text-right font-bold">
+                        {b.online ? <span className="text-emerald-400">{b.soh}%</span> : <span className="text-slate-500">—</span>}
+                      </td>
                       <td className="py-3 px-3 text-right text-slate-200 font-bold">{b.rated_capacity_ah ?? 150} Ah</td>
                       <td className="py-3 px-3 text-right text-slate-200">
-                        {b.total_voltage} V
-                        {b.bus_delta_v !== undefined && (
-                          <span className="text-[9px] text-cyan-400 ml-1">
-                            ({b.bus_delta_v > 0 ? '+' : ''}{b.bus_delta_v}V)
-                          </span>
+                        {b.online ? (
+                          <>
+                            {b.total_voltage} V
+                            {b.bus_delta_v !== undefined && (
+                              <span className="text-[9px] text-cyan-400 ml-1">
+                                ({b.bus_delta_v > 0 ? '+' : ''}{b.bus_delta_v}V)
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-slate-500">—</span>
                         )}
                       </td>
-                      <td className="py-3 px-3 text-right text-slate-200">{b.current} A</td>
-                      <td className="py-3 px-3 text-right text-slate-400">{b.power} kW</td>
+                      <td className="py-3 px-3 text-right text-slate-200">
+                        {b.online ? `${b.current} A` : <span className="text-slate-500">—</span>}
+                      </td>
+                      <td className="py-3 px-3 text-right text-slate-400">
+                        {b.online ? `${b.power} kW` : <span className="text-slate-500">—</span>}
+                      </td>
                       <td className={`py-3 px-3 text-right font-bold ${
-                        b.cell_voltage_delta_mv > 30.0 ? 'text-amber-400' : 'text-emerald-400'
+                        !b.online ? 'text-slate-500' : b.cell_voltage_delta_mv > 30.0 ? 'text-amber-400' : 'text-emerald-400'
                       }`}>
-                        {b.cell_voltage_delta_mv} mV
+                        {b.online ? `${b.cell_voltage_delta_mv} mV` : '—'}
                       </td>
                       <td className="py-3 px-3 text-right text-slate-300">
-                        {b.min_cell_voltage} - {b.max_cell_voltage} V
+                        {b.online ? `${b.min_cell_voltage} - ${b.max_cell_voltage} V` : <span className="text-slate-500">—</span>}
                       </td>
                       <td className="py-3 px-3 text-right text-slate-300">
-                        {b.max_cell_temp ?? b.temperature} °C
+                        {b.online ? `${b.max_cell_temp ?? b.temperature} °C` : <span className="text-slate-500">—</span>}
                       </td>
                       <td className="py-3 px-3 text-right text-cyan-300 font-bold">
-                        {b.discharged_capacity_ah !== undefined ? `${b.discharged_capacity_ah.toLocaleString()} Ah` : '—'}
+                        {b.online && b.discharged_capacity_ah !== undefined ? `${b.discharged_capacity_ah.toLocaleString()} Ah` : <span className="text-slate-500 font-normal">—</span>}
                       </td>
                       <td className="py-3 px-3 text-right text-slate-300">
-                        {b.equivalent_full_cycles !== undefined ? (
-                          <span>
-                            {b.equivalent_full_cycles} cyc
-                            <span className="text-[9px] text-slate-500 block">({b.cycle_count} ev)</span>
-                          </span>
+                        {b.online ? (
+                          b.equivalent_full_cycles !== undefined ? (
+                            <span>
+                              {b.equivalent_full_cycles} cyc
+                              <span className="text-[9px] text-slate-500 block">({b.cycle_count} ev)</span>
+                            </span>
+                          ) : (
+                            `${b.cycle_count} ev`
+                          )
                         ) : (
-                          `${b.cycle_count} ev`
+                          <span className="text-slate-500">—</span>
                         )}
                       </td>
                       <td className="py-3 px-3">
-                        {isLocked ? (
+                        {!b.online ? (
+                          <span className="text-slate-500">—</span>
+                        ) : isLocked ? (
                           <span className="text-rose-400 font-bold flex items-center gap-1">
                             <Lock className="w-3 h-3" /> Locked
                           </span>
@@ -790,7 +845,7 @@ export const BatteryComparisonPage: React.FC<BatteryComparisonPageProps> = ({
                         )}
                       </td>
                       <td className="py-3 px-3 text-right text-slate-300">
-                        {b.parameters?.charge_limit_a ?? 50.0} A
+                        {b.online ? `${b.parameters?.charge_limit_a ?? 50.0} A` : <span className="text-slate-500">—</span>}
                       </td>
                       <td className="py-3 px-4 text-center">
                         <button
@@ -852,8 +907,39 @@ export const BatteryComparisonPage: React.FC<BatteryComparisonPageProps> = ({
                     <span>{scanning ? 'Scanning...' : 'Scan Bus'}</span>
                   </button>
                 </div>
-                <span className="text-[10px] text-slate-500">
-                  Default presets: Slave IDs 1-16 (standard daisy-chain) or 214-220 (Huawei factory DIP defaults).
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[10px] text-slate-400 mr-1">Presets:</span>
+                  <button
+                    type="button"
+                    onClick={() => setCandidateInput('214, 1, 2, 3, 4')}
+                    className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] border border-cyan-800"
+                  >
+                    Both (214 + 1..4)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCandidateInput('214')}
+                    className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px]"
+                  >
+                    Standalone (214)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCandidateInput('1, 2, 3, 4')}
+                    className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-emerald-300 text-[10px]"
+                  >
+                    Cascade Bank (1..4)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCandidateInput('1, 2, 3, 4, 5, 6, 7, 8, 214')}
+                    className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px]"
+                  >
+                    Bank 1..8
+                  </button>
+                </div>
+                <span className="text-[10px] text-slate-500 block pt-0.5">
+                  Addresses: Slave 214 (0xD6) for standalone pack with all DIP OFF, or 1..16 for cascaded parallel packs.
                 </span>
               </div>
 

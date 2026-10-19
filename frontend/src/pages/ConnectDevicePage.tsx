@@ -80,8 +80,19 @@ export const ConnectDevicePage: React.FC<ConnectDevicePageProps> = ({ onRefreshT
     setStopbits(1)
     setSlaveId(214)
     setTimeoutVal(1.0)
-    setInterFrameDelay(0.02)
-    setSuccessMsg('Applied Huawei ESM-48150B1 / EMS-4805B1 Verified Preset: 9600 8-E-1, Slave ID 214 (0xD6)')
+    setInterFrameDelay(0.035)
+    setSuccessMsg('Applied Huawei ESM Standalone Preset: 9600 8-E-1, Slave ID 214 (0xD6)')
+  }
+
+  const handleApplyCascadePreset = () => {
+    setBaudrate(9600)
+    setBytesize(8)
+    setParity('E')
+    setStopbits(1)
+    setSlaveId(1)
+    setTimeoutVal(1.0)
+    setInterFrameDelay(0.035)
+    setSuccessMsg('Applied Huawei ESM Cascade Bank Preset: 9600 8-E-1, Slave ID 1 (DIP #1)')
   }
 
   const handleApplyResidentialPreset = () => {
@@ -91,7 +102,7 @@ export const ConnectDevicePage: React.FC<ConnectDevicePageProps> = ({ onRefreshT
     setStopbits(1)
     setSlaveId(1)
     setTimeoutVal(1.0)
-    setInterFrameDelay(0.02)
+    setInterFrameDelay(0.035)
     setSuccessMsg('Applied Huawei Residential LUNA2000 Preset: 9600 8-N-1, Slave ID 1')
   }
 
@@ -117,6 +128,9 @@ export const ConnectDevicePage: React.FC<ConnectDevicePageProps> = ({ onRefreshT
         auto_reconnect: autoReconnect,
         use_simulation: false,
       })
+      if (res.active_slave_id && res.active_slave_id !== slaveId) {
+        setSlaveId(res.active_slave_id)
+      }
       setSuccessMsg(res.message)
       await loadStatus()
       onRefreshTelemetry()
@@ -176,7 +190,9 @@ export const ConnectDevicePage: React.FC<ConnectDevicePageProps> = ({ onRefreshT
           ) : isConn ? (
             <div className="bg-emerald-950/80 border border-emerald-600/60 text-emerald-300 px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              <span>CONNECTED ({status?.port})</span>
+              <span>
+                CONNECTED ({status?.port} · Slave {status?.slave_id ?? slaveId} · {status?.baudrate ?? baudrate} 8{status?.parity ?? parity}{status?.stopbits ?? stopbits})
+              </span>
             </div>
           ) : (
             <div className="bg-slate-800 border border-slate-700 text-slate-400 px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center gap-2">
@@ -277,19 +293,28 @@ export const ConnectDevicePage: React.FC<ConnectDevicePageProps> = ({ onRefreshT
               Communication Parameters (Modbus RTU / RS485)
             </h3>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handleApplyEMS4805Preset}
               className="px-2.5 py-1 bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-600/60 rounded text-xs text-cyan-300 font-mono font-bold transition flex items-center gap-1.5"
+              title="Factory standalone configuration without DIP address"
             >
               <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Huawei ESM-48150B1 / 4805B1 Preset (9600 8-E-1, Slave 214)</span>
+              <span>ESM Standalone (Slave 214, 8-E-1)</span>
+            </button>
+            <button
+              onClick={handleApplyCascadePreset}
+              className="px-2.5 py-1 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-600/60 rounded text-xs text-emerald-300 font-mono font-bold transition flex items-center gap-1.5"
+              title="Multi-battery cascade daisy chain with DIP switches set"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              <span>ESM Cascade Bank (Slave 1, 8-E-1)</span>
             </button>
             <button
               onClick={handleApplyResidentialPreset}
               className="text-xs text-slate-400 hover:text-slate-300 underline font-mono"
             >
-              Residential Preset (Slave 1)
+              Residential LUNA (Slave 1, 8-N-1)
             </button>
           </div>
         </div>
@@ -516,11 +541,11 @@ export const ConnectDevicePage: React.FC<ConnectDevicePageProps> = ({ onRefreshT
             <ul className="space-y-1.5 text-slate-300">
               <li className="flex items-center justify-between border-b border-slate-900 pb-1">
                 <span>Modbus Slave ID:</span>
-                <span className="text-cyan-300 font-bold">214 (0xD6) [Physical Verified]</span>
+                <span className="text-cyan-300 font-bold">214 (0xD6) Standalone / 1..16 Cascade</span>
               </li>
               <li className="flex items-center justify-between border-b border-slate-900 pb-1">
                 <span>Serial Framing:</span>
-                <span className="text-cyan-300 font-bold">9600 Baud, 8 Data Bits, No Parity (8N1), 1 Stop Bit</span>
+                <span className="text-cyan-300 font-bold">9600 Baud, 8 Data Bits, Even Parity (8-E-1), 1 Stop Bit</span>
               </li>
               <li className="flex items-center justify-between border-b border-slate-900 pb-1">
                 <span>Function Code:</span>

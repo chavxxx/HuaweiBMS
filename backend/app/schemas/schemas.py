@@ -8,14 +8,15 @@ class SerialConnectRequest(BaseModel):
     port: str
     baudrate: int = Field(9600, description="Baud rate (e.g. 9600, 19200, 115200)")
     bytesize: int = Field(8, description="Data bits (7 or 8)")
-    parity: str = Field("N", description="'N' (None), 'E' (Even), 'O' (Odd)")
+    parity: str = Field("E", description="'N' (None), 'E' (Even), 'O' (Odd)")
     stopbits: float = Field(1.0, description="1 or 2 stop bits")
-    timeout: float = Field(1.0, description="Response timeout in seconds")
-    inter_frame_delay: float = Field(0.02, description="Inter-frame delay in seconds (RS485)")
-    slave_id: int = Field(1, description="Modbus slave address (1-247)")
+    timeout: float = Field(0.8, description="Response timeout in seconds")
+    inter_frame_delay: float = Field(0.035, description="Inter-frame delay in seconds (RS485)")
+    slave_id: int = Field(214, description="Modbus slave address (1-247, 214 for Huawei Standalone, 1-16 for DIP cascaded)")
     rs485_rts_control: bool = Field(False, description="Toggle RTS pin for half-duplex direction")
     auto_reconnect: bool = Field(True, description="Automatically attempt reconnect on drop")
     use_simulation: bool = Field(False, description="Explicitly toggle virtual BMS simulator")
+
 
 
 class ParameterWriteRequest(BaseModel):

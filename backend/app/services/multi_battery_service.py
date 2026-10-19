@@ -66,7 +66,15 @@ class MultiBatteryService:
                 "online": True,
                 "last_seen": time.time(),
             },
+            {
+                "slave_id": 214,
+                "name": "Battery #214 (Standalone 0xD6)",
+                "custom_name": "Battery #214 (Standalone 0xD6)",
+                "online": True,
+                "last_seen": time.time(),
+            },
         ]
+
 
         self.last_audit_data: Optional[dict[str, Any]] = None
 
@@ -327,41 +335,46 @@ class MultiBatteryService:
             if not self.serial_client.is_connected:
                 raise ConnectionError("Cannot scan bus: Serial port is not connected.")
 
-            adapter = self.serial_client.adapter
-            orig_timeout = self.serial_client.config.timeout
-            # Use faster timeout for scanning
-            self.serial_client.config.timeout = 0.35
+            with self.serial_client.bus_lock:
+                adapter = self.serial_client.adapter
+                orig_timeout = self.serial_client.config.timeout
+                # Use faster timeout for scanning
+                self.serial_client.config.timeout = 0.35
 
-            try:
-                for sid in candidates:
-                    # Test read: Reg 0x0000 (total voltage), 1 word
-                    req = adapter.build_read_holding_registers(sid, 0x0000, 1)
-                    t0 = time.perf_counter()
-                    resp = self.serial_client.execute_transaction(req, 0x03)
-                    latency = round((time.perf_counter() - t0) * 1000.0, 1)
+                try:
+                    for sid in candidates:
+                        # Test read: Reg 0x0000, 4 registers (Huawei ESM base block)
+                        req = adapter.build_read_holding_registers(sid, 0x0000, 4)
+                        t0 = time.perf_counter()
+                        resp = self.serial_client.execute_transaction(req, 0x03)
+                        latency = round((time.perf_counter() - t0) * 1000.0, 1)
 
-                    if resp.success:
-                        # Attempt to read model
-                        model_name = "Huawei ESM Battery"
-                        m_req = adapter.build_read_holding_registers(sid, 818, 6)
-                        m_resp = self.serial_client.execute_transaction(m_req, 0x03)
-                        if m_resp.success and len(m_resp.values) == 6:
-                            from .telemetry_service import decode_ascii_registers
-                            raw_m = decode_ascii_registers(m_resp.values)
-                            if raw_m:
-                                model_name = f"Huawei {raw_m}"
+                        if resp.success and resp.values:
+                            # Attempt to read model
+                            model_name = "Huawei ESM Battery"
+                            time.sleep(self.serial_client.config.inter_frame_delay)
+                            m_req = adapter.build_read_holding_registers(sid, 818, 6)
+                            m_resp = self.serial_client.execute_transaction(m_req, 0x03)
+                            if m_resp.success and len(m_resp.values) == 6:
+                                from .telemetry_service import decode_ascii_registers
+                                raw_m = decode_ascii_registers(m_resp.values)
+                                if raw_m:
+                                    model_name = f"Huawei {raw_m}"
 
-                        discovered.append({
-                            "slave_id": sid,
-                            "model": model_name,
-                            "serial_number": f"HW-ESM-{sid:02X}",
-                            "status": "Online",
-                            "latency_ms": latency
-                        })
-                        # Add to configured batteries if not already present
-                        self.add_battery(sid, f"Battery #{sid} ({model_name})")
-            finally:
-                self.serial_client.config.timeout = orig_timeout
+                            discovered.append({
+                                "slave_id": sid,
+                                "model": model_name,
+                                "serial_number": f"HW-ESM-{sid:02X}",
+                                "status": "Online",
+                                "latency_ms": latency
+                            })
+                            # Add to configured batteries if not already present
+                            self.add_battery(sid, f"Battery #{sid} ({model_name})")
+
+                        time.sleep(self.serial_client.config.inter_frame_delay)
+                finally:
+                    self.serial_client.config.timeout = orig_timeout
+
 
         return {
             "success": True,
@@ -469,7 +482,7 @@ class MultiBatteryService:
             else:
                 # Hardware physical bus readout
                 if not self.serial_client.is_connected:
-                    # Offline record
+                    # Serial not open - mark all as disconnected
                     battery_data.append({
                         "slave_id": sid,
                         "name": name,
@@ -485,24 +498,42 @@ class MultiBatteryService:
                         "cell_voltage_delta_mv": 0.0,
                         "active_alarms": [],
                         "alarm_count": 0,
+                        "operating_state": "Disconnected",
                     })
                     continue
 
-                # Query physical registers for this slave ID
-                adapter = self.serial_client.adapter
-                try:
-                    # 1. Base telemetry (Regs 0x0000..0x0007)
-                    req_base = adapter.build_read_holding_registers(sid, 0x0000, 8)
-                    resp_base = self.serial_client.execute_transaction(req_base, 0x03)
+                # Query physical registers under exclusive bus lock
+                with self.serial_client.bus_lock:
+                    adapter = self.serial_client.adapter
+                    delay = self.serial_client.config.inter_frame_delay
 
-                    v_bus = 53.4
-                    v_pack = 53.2
-                    current = 0.0
-                    soc = 75.0
-                    soh = 100.0
-                    temp = 25.0
+                    try:
+                        # 1. Base telemetry (Regs 0x0000..0x0007)
+                        req_base = adapter.build_read_holding_registers(sid, 0x0000, 8)
+                        resp_base = self.serial_client.execute_transaction(req_base, 0x03)
 
-                    if resp_base.success and len(resp_base.values) >= 7:
+                        # If base query fails or returns insufficient registers, short-circuit immediately as Offline!
+                        if not resp_base.success or not resp_base.values or len(resp_base.values) < 7:
+                            battery_data.append({
+                                "slave_id": sid,
+                                "name": name,
+                                "model": b.get("model", "Huawei ESM-48150B1"),
+                                "serial_number": b.get("serial_number", f"HW-ESM-{sid:02X}"),
+                                "online": False,
+                                "soc": 0.0,
+                                "soh": 0.0,
+                                "total_voltage": 0.0,
+                                "current": 0.0,
+                                "power": 0.0,
+                                "temperature": 0.0,
+                                "cell_voltage_delta_mv": 0.0,
+                                "active_alarms": ["DEVICE_UNRESPONSIVE"],
+                                "alarm_count": 1,
+                                "operating_state": "Offline",
+                                "parameters": {}
+                            })
+                            continue
+
                         w = resp_base.values
                         v_bus = round(w[0] * 0.01, 2)
                         v_pack = round(w[1] * 0.01, 2)
@@ -513,225 +544,248 @@ class MultiBatteryService:
                         soh = round(float(w[4]), 1)
                         temp = float(w[6] if w[6] < 32768 else w[6] - 65536)
 
-                    # 2. Operating Mode & Status at Regs 10..15
-                    op_mode_raw = 4  # Standby
-                    state_str = "Standby"
-                    req_stat = adapter.build_read_holding_registers(sid, 10, 6)
-                    resp_stat = self.serial_client.execute_transaction(req_stat, 0x03)
-                    if resp_stat.success and len(resp_stat.values) >= 5:
-                        op_mode_raw = resp_stat.values[4]  # Reg 14
-                        mode_map = {0: "Hibernate", 1: "Low Power", 2: "Charging", 3: "Discharging", 4: "Standby"}
-                        state_str = mode_map.get(op_mode_raw, "Standby")
-                    elif current > 0.05:
-                        state_str = "Charging"
-                    elif current < -0.05:
-                        state_str = "Discharging"
+                        time.sleep(delay)
 
-                    # 3. Alarms at Regs 70..74
-                    active_alarms = []
-                    alarm_req = adapter.build_read_holding_registers(sid, 70, 5)
-                    alarm_resp = self.serial_client.execute_transaction(alarm_req, 0x03)
-                    if alarm_resp.success and len(alarm_resp.values) == 5:
-                        crit1, crit2, maj, minr, mod_al = alarm_resp.values
-                        if crit1: active_alarms.append(f"CRITICAL_1:0x{crit1:04X}")
-                        if crit2: active_alarms.append(f"CRITICAL_2:0x{crit2:04X}")
-                        if maj: active_alarms.append(f"MAJOR:0x{maj:04X}")
-                        if minr: active_alarms.append(f"MINOR:0x{minr:04X}")
-                        if mod_al: active_alarms.append(f"MODULE:0x{mod_al:04X}")
+                        # 2. Operating Mode & Status at Regs 10..15
+                        op_mode_raw = 4  # Standby
+                        state_str = "Standby"
+                        req_stat = adapter.build_read_holding_registers(sid, 10, 6)
+                        resp_stat = self.serial_client.execute_transaction(req_stat, 0x03)
+                        if resp_stat.success and len(resp_stat.values) >= 5:
+                            op_mode_raw = resp_stat.values[4]  # Reg 14
+                            mode_map = {0: "Hibernate", 1: "Low Power", 2: "Charging", 3: "Discharging", 4: "Standby"}
+                            state_str = mode_map.get(op_mode_raw, "Standby")
+                        elif current > 0.05:
+                            state_str = "Charging"
+                        elif current < -0.05:
+                            state_str = "Discharging"
 
-                    if active_alarms:
-                        state_str = "Fault"
+                        time.sleep(delay)
 
-                    # 4. System Specs at Regs 257..271 (15 registers)
-                    sw_ver_str = "V2.70"
-                    hw_rev_str = "Rev 69"
-                    bootloader_str = "V1.02"
-                    rated_cap = 150
-                    max_curr = 150
-                    reported_cells = 16
+                        # 3. Alarms at Regs 70..74
+                        active_alarms = []
+                        alarm_req = adapter.build_read_holding_registers(sid, 70, 5)
+                        alarm_resp = self.serial_client.execute_transaction(alarm_req, 0x03)
+                        if alarm_resp.success and len(alarm_resp.values) == 5:
+                            crit1, crit2, maj, minr, mod_al = alarm_resp.values
+                            if crit1: active_alarms.append(f"CRITICAL_1:0x{crit1:04X}")
+                            if crit2: active_alarms.append(f"CRITICAL_2:0x{crit2:04X}")
+                            if maj: active_alarms.append(f"MAJOR:0x{maj:04X}")
+                            if minr: active_alarms.append(f"MINOR:0x{minr:04X}")
+                            if mod_al: active_alarms.append(f"MODULE:0x{mod_al:04X}")
 
-                    req_specs = adapter.build_read_holding_registers(sid, 257, 15)
-                    resp_specs = self.serial_client.execute_transaction(req_specs, 0x03)
-                    if resp_specs.success and len(resp_specs.values) >= 15:
-                        vals = resp_specs.values
-                        sw_ver = vals[0]
-                        hw_ver = vals[1]
-                        bl_ver = vals[2]
-                        cap_val = vals[6]      # Reg 263: Rated Capacity (150 Ah)
-                        cell_cnt = vals[14]    # Reg 271: Reported Cell Count (11 or 22)
+                        if active_alarms:
+                            state_str = "Fault"
 
-                        sw_ver_str = f"V{sw_ver // 100}.{sw_ver % 100:02d}"
-                        hw_rev_str = f"Rev {hw_ver}"
-                        bootloader_str = f"V{bl_ver // 100}.{bl_ver % 100:02d}"
-                        if 10 <= cap_val <= 1000:
-                            rated_cap = cap_val
-                        if cell_cnt in (11, 15, 16, 22):
-                            reported_cells = cell_cnt
+                        time.sleep(delay)
 
-                    # 5. Cell Voltages (Regs 34..49, up to 16 cell voltages)
-                    req_cells = adapter.build_read_holding_registers(sid, 34, 16)
-                    resp_cells = self.serial_client.execute_transaction(req_cells, 0x03)
-                    cells = []
-                    if resp_cells.success and resp_cells.values:
-                        valid_mv = [mv for mv in resp_cells.values if 1500 <= mv <= 5000]
-                        if valid_mv:
-                            cells = [round(mv / 1000.0, 3) for mv in valid_mv]
+                        # 4. System Specs at Regs 257..271 (15 registers)
+                        sw_ver_str = "V2.70"
+                        hw_rev_str = "Rev 69"
+                        bootloader_str = "V1.02"
+                        rated_cap = 150
+                        max_curr = 150
+                        reported_cells = 16
 
-                    # 6. Cell Temperatures (Regs 18..33, up to 16 probes)
-                    req_temps = adapter.build_read_holding_registers(sid, 18, 16)
-                    resp_temps = self.serial_client.execute_transaction(req_temps, 0x03)
-                    temps_arr = []
-                    if resp_temps.success and resp_temps.values:
-                        raw_temps = [float(t if t < 32768 else t - 65536) for t in resp_temps.values]
-                        temps_arr = [t for t in raw_temps if -40.0 <= t <= 125.0]
+                        req_specs = adapter.build_read_holding_registers(sid, 257, 15)
+                        resp_specs = self.serial_client.execute_transaction(req_specs, 0x03)
+                        if resp_specs.success and len(resp_specs.values) >= 15:
+                            vals = resp_specs.values
+                            sw_ver = vals[0]
+                            hw_ver = vals[1]
+                            bl_ver = vals[2]
+                            cap_val = vals[6]      # Reg 263: Rated Capacity (150 Ah)
+                            cell_cnt = vals[14]    # Reg 271: Reported Cell Count (11 or 22)
 
-                    # If reported cell count > 16, query extended cells (Regs 768..773, 784..789)
-                    if reported_cells > 16:
-                        extra_count = min(reported_cells - 16, 8)
-                        t_ext = adapter.build_read_holding_registers(sid, 768, extra_count)
-                        t_ext_resp = self.serial_client.execute_transaction(t_ext, 0x03)
-                        if t_ext_resp.success and t_ext_resp.values:
-                            r_ext_t = [float(t if t < 32768 else t - 65536) for t in t_ext_resp.values]
-                            temps_arr.extend([t for t in r_ext_t if -40.0 <= t <= 125.0])
+                            sw_ver_str = f"V{sw_ver // 100}.{sw_ver % 100:02d}"
+                            hw_rev_str = f"Rev {hw_ver}"
+                            bootloader_str = f"V{bl_ver // 100}.{bl_ver % 100:02d}"
+                            if 10 <= cap_val <= 1000:
+                                rated_cap = cap_val
+                            if cell_cnt in (11, 15, 16, 22):
+                                reported_cells = cell_cnt
 
-                        v_ext = adapter.build_read_holding_registers(sid, 784, extra_count)
-                        v_ext_resp = self.serial_client.execute_transaction(v_ext, 0x03)
-                        if v_ext_resp.success and v_ext_resp.values:
-                            valid_ext_v = [round(mv / 1000.0, 3) for mv in v_ext_resp.values if 1500 <= mv <= 5000]
-                            cells.extend(valid_ext_v)
+                        time.sleep(delay)
 
-                    if not cells:
-                        cells = [round(v_pack / max(reported_cells, 16), 3)] * max(reported_cells, 16)
-                    if not temps_arr:
-                        temps_arr = [temp] * len(cells)
+                        # 5. Cell Voltages (Regs 34..49, up to 16 cell voltages)
+                        req_cells = adapter.build_read_holding_registers(sid, 34, 16)
+                        resp_cells = self.serial_client.execute_transaction(req_cells, 0x03)
+                        cells = []
+                        if resp_cells.success and resp_cells.values:
+                            valid_mv = [mv for mv in resp_cells.values if 1500 <= mv <= 5000]
+                            if valid_mv:
+                                cells = [round(mv / 1000.0, 3) for mv in valid_mv]
 
-                    min_v = min(cells)
-                    max_v = max(cells)
-                    avg_v = round(sum(cells) / len(cells), 3)
-                    delta_v_mv = round((max_v - min_v) * 1000.0, 1)
+                        time.sleep(delay)
 
-                    min_t = min(temps_arr)
-                    max_t = max(temps_arr)
+                        # 6. Cell Temperatures (Regs 18..33, up to 16 probes)
+                        req_temps = adapter.build_read_holding_registers(sid, 18, 16)
+                        resp_temps = self.serial_client.execute_transaction(req_temps, 0x03)
+                        temps_arr = []
+                        if resp_temps.success and resp_temps.values:
+                            raw_temps = [float(t if t < 32768 else t - 65536) for t in resp_temps.values]
+                            temps_arr = [t for t in raw_temps if -40.0 <= t <= 125.0]
 
-                    # 7. Model Name (Regs 818..823) & Barcode Serial (Regs 529..534)
-                    model_name = "Huawei ESM-48150B1"
-                    req_m = adapter.build_read_holding_registers(sid, 818, 6)
-                    resp_m = self.serial_client.execute_transaction(req_m, 0x03)
-                    if resp_m.success and len(resp_m.values) == 6:
-                        from .telemetry_service import decode_ascii_registers
-                        raw_m = decode_ascii_registers(resp_m.values)
-                        if raw_m:
-                            model_name = f"Huawei {raw_m}"
+                        # If reported cell count > 16, query extended cells (Regs 768..773, 784..789)
+                        if reported_cells > 16:
+                            extra_count = min(reported_cells - 16, 8)
+                            time.sleep(delay)
+                            t_ext = adapter.build_read_holding_registers(sid, 768, extra_count)
+                            t_ext_resp = self.serial_client.execute_transaction(t_ext, 0x03)
+                            if t_ext_resp.success and t_ext_resp.values:
+                                r_ext_t = [float(t if t < 32768 else t - 65536) for t in t_ext_resp.values]
+                                temps_arr.extend([t for t in r_ext_t if -40.0 <= t <= 125.0])
 
-                    sn = f"HW-ESM-{sid:02X}"
-                    req_sn = adapter.build_read_holding_registers(sid, 529, 6)
-                    resp_sn = self.serial_client.execute_transaction(req_sn, 0x03)
-                    if resp_sn.success and len(resp_sn.values) == 6:
-                        from .telemetry_service import decode_ascii_registers
-                        raw_sn = decode_ascii_registers(resp_sn.values)
-                        if raw_sn:
-                            sn = raw_sn
+                            time.sleep(delay)
+                            v_ext = adapter.build_read_holding_registers(sid, 784, extra_count)
+                            v_ext_resp = self.serial_client.execute_transaction(v_ext, 0x03)
+                            if v_ext_resp.success and v_ext_resp.values:
+                                valid_ext_v = [round(mv / 1000.0, 3) for mv in v_ext_resp.values if 1500 <= mv <= 5000]
+                                cells.extend(valid_ext_v)
 
-                    # 8. Manufacture Date (Regs 836..838)
-                    mfg_date = "N/A"
-                    req_date = adapter.build_read_holding_registers(sid, 836, 3)
-                    resp_date = self.serial_client.execute_transaction(req_date, 0x03)
-                    if resp_date.success and len(resp_date.values) == 3:
-                        y, m, d = resp_date.values
-                        if 2000 <= y <= 2099 and 1 <= m <= 12 and 1 <= d <= 31:
-                            mfg_date = f"{y:04d}-{m:02d}-{d:02d}"
+                        if not cells:
+                            cells = [round(v_pack / max(reported_cells, 16), 3)] * max(reported_cells, 16)
+                        if not temps_arr:
+                            temps_arr = [temp] * len(cells)
 
-                    # 9. 32-bit Discharge Counter (Regs 66-67) & Discharged Ah (Regs 68-69)
-                    discharge_cycles = 0
-                    discharged_ah = 0
-                    req_cnt = adapter.build_read_holding_registers(sid, 66, 4)
-                    resp_cnt = self.serial_client.execute_transaction(req_cnt, 0x03)
-                    if resp_cnt.success and len(resp_cnt.values) == 4:
-                        w = resp_cnt.values
-                        discharge_cycles = (w[0] << 16) | w[1]
-                        discharged_ah = (w[2] << 16) | w[3]
+                        min_v = min(cells)
+                        max_v = max(cells)
+                        avg_v = round(sum(cells) / len(cells), 3)
+                        delta_v_mv = round((max_v - min_v) * 1000.0, 1)
 
-                    equiv_cycles = round(discharged_ah / max(rated_cap, 1), 1)
+                        min_t = min(temps_arr)
+                        max_t = max(temps_arr)
 
-                    # 10. Parameters (Anti-theft lock at 4376, charge limit at 4109, discharge limit at 4107)
-                    req_lock = adapter.build_read_holding_registers(sid, 4376, 2)
-                    resp_lock = self.serial_client.execute_transaction(req_lock, 0x03)
-                    is_locked = False
-                    if resp_lock.success and len(resp_lock.values) >= 1:
-                        is_locked = (resp_lock.values[0] == 1)
+                        time.sleep(delay)
 
-                    chg_c = 0.5
-                    dis_c = 1.0
-                    req_limits = adapter.build_read_holding_registers(sid, 4107, 3)
-                    resp_limits = self.serial_client.execute_transaction(req_limits, 0x03)
-                    if resp_limits.success and len(resp_limits.values) >= 3:
-                        dis_c = round(resp_limits.values[0] * 0.001, 3)  # Reg 4107
-                        chg_c = round(resp_limits.values[2] * 0.001, 3)  # Reg 4109
+                        # 7. Model Name (Regs 818..823) & Barcode Serial (Regs 529..534)
+                        model_name = "Huawei ESM-48150B1"
+                        req_m = adapter.build_read_holding_registers(sid, 818, 6)
+                        resp_m = self.serial_client.execute_transaction(req_m, 0x03)
+                        if resp_m.success and len(resp_m.values) == 6:
+                            from .telemetry_service import decode_ascii_registers
+                            raw_m = decode_ascii_registers(resp_m.values)
+                            if raw_m:
+                                model_name = f"Huawei {raw_m}"
 
-                    power = round((v_pack * current) / 1000.0, 3)
-                    bus_delta_v = round(v_bus - v_pack, 2)
+                        time.sleep(delay)
+                        sn = f"HW-ESM-{sid:02X}"
+                        req_sn = adapter.build_read_holding_registers(sid, 529, 6)
+                        resp_sn = self.serial_client.execute_transaction(req_sn, 0x03)
+                        if resp_sn.success and len(resp_sn.values) == 6:
+                            from .telemetry_service import decode_ascii_registers
+                            raw_sn = decode_ascii_registers(resp_sn.values)
+                            if raw_sn:
+                                sn = raw_sn
 
-                    battery_data.append({
-                        "slave_id": sid,
-                        "name": name,
-                        "model": model_name,
-                        "serial_number": sn,
-                        "mfg_date": mfg_date,
-                        "firmware_version": sw_ver_str,
-                        "hardware_rev": hw_rev_str,
-                        "bootloader_version": bootloader_str,
-                        "online": True,
-                        "soc": soc,
-                        "soh": soh,
-                        "total_voltage": v_pack,
-                        "current": current,
-                        "power": power,
-                        "dc_bus_voltage": v_bus,
-                        "bus_delta_v": bus_delta_v,
-                        "bus_delta_voltage": bus_delta_v,
-                        "temperature": temp,
-                        "cycle_count": discharge_cycles,
-                        "discharged_capacity_ah": discharged_ah,
-                        "equivalent_full_cycles": equiv_cycles,
-                        "rated_capacity_ah": rated_cap,
-                        "remaining_capacity_ah": round(rated_cap * (soc / 100.0), 1),
-                        "max_current_limit_a": max_curr,
-                        "charge_energy_kwh": 0.0,
-                        "discharge_energy_kwh": round((discharged_ah * v_pack) / 1000.0, 2),
-                        "cell_count": len(cells),
-                        "reported_cell_count": reported_cells,
-                        "cell_voltages": cells,
-                        "min_cell_voltage": min_v,
-                        "max_cell_voltage": max_v,
-                        "avg_cell_voltage": avg_v,
-                        "min_cell_index": cells.index(min_v) + 1,
-                        "max_cell_index": cells.index(max_v) + 1,
-                        "cell_voltage_delta_mv": delta_v_mv,
-                        "cell_temps": temps_arr,
-                        "min_cell_temp": min_t,
-                        "max_cell_temp": max_t,
-                        "temp_spread": round(max_t - min_t, 1),
-                        "operating_state": state_str,
-                        "active_alarms": active_alarms,
-                        "alarm_count": len(active_alarms),
-                        "parameters": {
-                            "gyroscope_anti_theft_locked": is_locked,
-                            "gyroscope_sensitivity": 1,
-                            "charge_limit_c": chg_c,
-                            "charge_limit_a": round(chg_c * float(rated_cap), 1),
-                            "discharge_limit_c": dis_c,
-                            "discharge_limit_a": round(dis_c * float(rated_cap), 1),
-                            "float_voltage_v": 54.0,
-                            "boost_voltage_v": 56.4,
-                            "cutoff_voltage_v": 44.0,
-                        }
-                    })
-                except Exception as e:
-                    logger.warning("Error reading battery %d: %s", sid, e)
+                        time.sleep(delay)
+
+                        # 8. Manufacture Date (Regs 836..838)
+                        mfg_date = "N/A"
+                        req_date = adapter.build_read_holding_registers(sid, 836, 3)
+                        resp_date = self.serial_client.execute_transaction(date_req, 0x03)
+                        if resp_date.success and len(resp_date.values) == 3:
+                            y, m, d = resp_date.values
+                            if 2000 <= y <= 2099 and 1 <= m <= 12 and 1 <= d <= 31:
+                                mfg_date = f"{y:04d}-{m:02d}-{d:02d}"
+
+                        time.sleep(delay)
+
+                        # 9. 32-bit Discharge Counter (Regs 66-67) & Discharged Ah (Regs 68-69)
+                        discharge_cycles = 0
+                        discharged_ah = 0
+                        req_cnt = adapter.build_read_holding_registers(sid, 66, 4)
+                        resp_cnt = self.serial_client.execute_transaction(req_cnt, 0x03)
+                        if resp_cnt.success and len(resp_cnt.values) == 4:
+                            w_cnt = resp_cnt.values
+                            discharge_cycles = (w_cnt[0] << 16) | w_cnt[1]
+                            discharged_ah = (w_cnt[2] << 16) | w_cnt[3]
+
+                        equiv_cycles = round(discharged_ah / max(rated_cap, 1), 1)
+
+                        time.sleep(delay)
+
+                        # 10. Parameters (Anti-theft lock at 4376, charge limit at 4109, discharge limit at 4107)
+                        is_locked = False
+                        req_lock = adapter.build_read_holding_registers(sid, 4376, 2)
+                        resp_lock = self.serial_client.execute_transaction(req_lock, 0x03)
+                        if resp_lock.success and len(resp_lock.values) >= 1:
+                            is_locked = (resp_lock.values[0] == 1)
+
+                        time.sleep(delay)
+                        chg_c = 0.5
+                        dis_c = 1.0
+                        req_limits = adapter.build_read_holding_registers(sid, 4107, 3)
+                        resp_limits = self.serial_client.execute_transaction(req_limits, 0x03)
+                        if resp_limits.success and len(resp_limits.values) >= 3:
+                            dis_c = round(resp_limits.values[0] * 0.001, 3)  # Reg 4107
+                            chg_c = round(resp_limits.values[2] * 0.001, 3)  # Reg 4109
+
+                        power = round((v_pack * current) / 1000.0, 3)
+                        bus_delta_v = round(v_bus - v_pack, 2)
+
+                        battery_data.append({
+                            "slave_id": sid,
+                            "name": name,
+                            "model": model_name,
+                            "serial_number": sn,
+                            "mfg_date": mfg_date,
+                            "firmware_version": sw_ver_str,
+                            "hardware_rev": hw_rev_str,
+                            "bootloader_version": bootloader_str,
+                            "online": True,
+                            "soc": soc,
+                            "soh": soh,
+                            "total_voltage": v_pack,
+                            "current": current,
+                            "power": power,
+                            "dc_bus_voltage": v_bus,
+                            "bus_delta_v": bus_delta_v,
+                            "bus_delta_voltage": bus_delta_v,
+                            "temperature": temp,
+                            "cycle_count": discharge_cycles,
+                            "discharged_capacity_ah": discharged_ah,
+                            "equivalent_full_cycles": equiv_cycles,
+                            "rated_capacity_ah": rated_cap,
+                            "remaining_capacity_ah": round(rated_cap * (soc / 100.0), 1),
+                            "max_current_limit_a": max_curr,
+                            "charge_energy_kwh": 0.0,
+                            "discharge_energy_kwh": round((discharged_ah * v_pack) / 1000.0, 2),
+                            "cell_count": len(cells),
+                            "reported_cell_count": reported_cells,
+                            "cell_voltages": cells,
+                            "min_cell_voltage": min_v,
+                            "max_cell_voltage": max_v,
+                            "avg_cell_voltage": avg_v,
+                            "min_cell_index": cells.index(min_v) + 1,
+                            "max_cell_index": cells.index(max_v) + 1,
+                            "cell_voltage_delta_mv": delta_v_mv,
+                            "cell_temps": temps_arr,
+                            "min_cell_temp": min_t,
+                            "max_cell_temp": max_t,
+                            "temp_spread": round(max_t - min_t, 1),
+                            "operating_state": state_str,
+                            "active_alarms": active_alarms,
+                            "alarm_count": len(active_alarms),
+                            "parameters": {
+                                "gyroscope_anti_theft_locked": is_locked,
+                                "gyroscope_sensitivity": 1,
+                                "charge_limit_c": chg_c,
+                                "charge_limit_a": round(chg_c * float(rated_cap), 1),
+                                "discharge_limit_c": dis_c,
+                                "discharge_limit_a": round(dis_c * float(rated_cap), 1),
+                                "float_voltage_v": 54.0,
+                                "boost_voltage_v": 56.4,
+                                "cutoff_voltage_v": 44.0,
+                            }
+                        })
+                    except Exception as e:
+                        logger.warning("Error reading battery %d: %s", sid, e)
 
         # Restore active battery address
         if not is_sim:
             self.serial_client.config.slave_id = self.active_slave_id
+
 
         # Compute Fleet Summary Metrics
         online_batts = [b for b in battery_data if b.get("online", False)]

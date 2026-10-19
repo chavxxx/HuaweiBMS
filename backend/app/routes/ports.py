@@ -64,13 +64,25 @@ def connect_port(req: SerialConnectRequest):
     try:
         app_context.serial_client.connect(config)
         app_context.telemetry_service.reset_telemetry_for_hardware()
+        app_context.multi_battery_service.active_slave_id = req.slave_id
+        app_context.multi_battery_service.add_battery(req.slave_id, f"Battery #{req.slave_id}")
+
+        # Auto-detect whether battery is responding at req.slave_id or alternate common Huawei address
+        detected_id = app_context.telemetry_service.probe_and_detect_slave_id(req.slave_id)
+        if detected_id and detected_id != req.slave_id:
+            msg = f"Connected to {req.port} ({req.baudrate} 8{req.parity}{int(req.stopbits)}) — Auto-detected battery responding at Slave ID {detected_id}."
+        else:
+            msg = f"Connected to {req.port} ({req.baudrate} 8{req.parity}{int(req.stopbits)}, Slave ID {app_context.serial_client.config.slave_id})."
+
         return {
             "success": True,
-            "message": f"Successfully connected to hardware on {req.port} ({req.baudrate} 8{req.parity}{req.stopbits}).",
-            "is_simulation": False
+            "message": msg,
+            "is_simulation": False,
+            "active_slave_id": app_context.serial_client.config.slave_id
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 
 
 @router.post("/disconnect")

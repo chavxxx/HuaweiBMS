@@ -135,9 +135,9 @@ export const MultiBatteryBar: React.FC<MultiBatteryBarProps> = ({
                 ID: {currentBattery.slave_id}
               </span>
             )}
-            {currentBattery?.soc !== undefined && (
+            {currentBattery && (
               <span className="text-slate-300">
-                · {currentBattery.soc}% SOC · {currentBattery.total_voltage}V
+                · {currentBattery.online ? `${currentBattery.soc}% SOC · ${currentBattery.total_voltage}V` : '(Offline)'}
               </span>
             )}
           </div>
@@ -192,13 +192,15 @@ export const MultiBatteryBar: React.FC<MultiBatteryBarProps> = ({
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono transition border ${
                 isActive
                   ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400 font-bold shadow-sm shadow-cyan-950'
+                  : !b.online
+                  ? 'bg-slate-950/40 text-slate-500 border-slate-900 opacity-60'
                   : 'bg-slate-950/80 hover:bg-slate-800 text-slate-400 border-slate-800'
               }`}
             >
-              <Battery className={`w-3.5 h-3.5 ${isActive ? 'text-cyan-400' : 'text-slate-500'}`} />
+              <Battery className={`w-3.5 h-3.5 ${isActive ? 'text-cyan-400' : !b.online ? 'text-slate-600' : 'text-slate-500'}`} />
               <span>#{b.slave_id}</span>
-              <span className="text-[10px] opacity-80">{b.soc}%</span>
-              {hasAlarms && (
+              <span className="text-[10px] opacity-80">{b.online ? `${b.soc}%` : 'Off'}</span>
+              {b.online && hasAlarms && (
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
               )}
             </button>
