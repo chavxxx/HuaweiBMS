@@ -2,6 +2,7 @@ export type UserRole = 'VIEWER' | 'OPERATOR' | 'ADMINISTRATOR'
 
 export type PageId =
   | 'dashboard'
+  | 'compare'
   | 'connect'
   | 'electrical'
   | 'cells'
@@ -245,5 +246,107 @@ export interface UpdatePullResult {
   stdout: string
   message: string
   audit_id: number
+}
+
+export interface BatterySummaryItem {
+  slave_id: number
+  name: string
+  model: string
+  serial_number: string
+  is_active: boolean
+  online: boolean
+  soc: number
+  soh: number
+  total_voltage: number
+  current: number
+  power: number
+  temperature: number
+  cell_voltage_delta_mv: number
+  cycle_count: number
+  rated_capacity_ah: number
+  alarm_count: number
+  active_alarms: (string | number)[]
+  operating_state: string
+}
+
+export interface BatteryParameters {
+  gyroscope_anti_theft_locked: boolean
+  gyroscope_sensitivity: number
+  charge_limit_c: number
+  charge_limit_a: number
+  discharge_limit_c: number
+  discharge_limit_a: number
+  float_voltage_v: number
+  boost_voltage_v: number
+  cutoff_voltage_v: number
+}
+
+export interface BatteryDetailItem extends BatterySummaryItem {
+  mfg_date?: string
+  firmware_version?: string
+  hardware_rev?: string
+  dc_bus_voltage?: number
+  remaining_capacity_ah?: number
+  max_current_limit_a?: number
+  charge_energy_kwh?: number
+  discharge_energy_kwh?: number
+  cell_count: number
+  cell_voltages: number[]
+  min_cell_voltage: number
+  max_cell_voltage: number
+  avg_cell_voltage: number
+  min_cell_index: number
+  max_cell_index: number
+  cell_temps: number[]
+  min_cell_temp: number
+  max_cell_temp: number
+  temp_spread: number
+  parameters: BatteryParameters
+}
+
+export interface FleetOutlier {
+  slave_id: number
+  battery_name: string
+  type: string
+  severity: 'INFO' | 'WARNING' | 'CRITICAL'
+  message: string
+}
+
+export interface FleetSummary {
+  battery_count: number
+  online_count: number
+  total_capacity_ah: number
+  total_remaining_ah: number
+  total_energy_kwh: number
+  total_current_a: number
+  total_power_kw: number
+  avg_pack_voltage_v: number
+  avg_soc: number
+  min_soc: number
+  max_soc: number
+  soc_divergence: number
+  avg_soh: number
+  min_soh: number
+  max_cell_delta_mv: number
+  max_temperature_c: number
+  total_alarms: number
+  outliers: FleetOutlier[]
+}
+
+export interface MultiBatteryAuditResponse {
+  timestamp: number
+  summary: FleetSummary
+  batteries: BatteryDetailItem[]
+  is_simulation: boolean
+  active_slave_id: number
+}
+
+export interface SavedAuditItem {
+  id: number
+  timestamp: number
+  battery_count: number
+  summary: FleetSummary
+  operator: string
+  notes: string
 }
 

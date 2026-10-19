@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .routes import (
     alarms,
     audit,
+    batteries,
     config_manager,
     diagnostics,
     history,
@@ -63,6 +64,7 @@ app.include_router(history.router)
 app.include_router(audit.router)
 app.include_router(settings.router)
 app.include_router(updates.router)
+app.include_router(batteries.router)
 
 
 # WebSocket for high-frequency live telemetry and protocol stream

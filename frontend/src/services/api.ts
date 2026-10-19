@@ -13,6 +13,11 @@ import type {
   UnlockBatteryResult,
   UpdateCheckResult,
   UpdatePullResult,
+  BatterySummaryItem,
+  BatteryDetailItem,
+  FleetSummary,
+  MultiBatteryAuditResponse,
+  SavedAuditItem,
 } from '../types'
 
 const BASE_URL = ''
@@ -300,5 +305,123 @@ export const api = {
     }
     return res.json()
   },
+
+  // Multi-Battery Fleet & Addressing
+  async listBatteries(): Promise<{
+    batteries: BatterySummaryItem[]
+    active_slave_id: number
+    is_simulation: boolean
+    total_count: number
+  }> {
+    const res = await fetch(`${BASE_URL}/api/batteries`)
+    if (!res.ok) throw new Error('Failed to fetch batteries list')
+    return res.json()
+  },
+
+  async selectBattery(slaveId: number): Promise<{ success: boolean; active_slave_id: number; message: string }> {
+    const res = await fetch(`${BASE_URL}/api/batteries/select`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slave_id: slaveId }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || `Failed to select battery ${slaveId}`)
+    }
+    return res.json()
+  },
+
+  async scanBus(candidateIds?: number[]): Promise<{
+    success: boolean
+    scanned_count: number
+    discovered_count: number
+    discovered: any[]
+  }> {
+    const res = await fetch(`${BASE_URL}/api/batteries/scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ candidate_ids: candidateIds }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || 'Bus scan failed')
+    }
+    return res.json()
+  },
+
+  async addBattery(slaveId: number, name?: string): Promise<any> {
+    const res = await fetch(`${BASE_URL}/api/batteries/add`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slave_id: slaveId, name }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || 'Failed to add battery')
+    }
+    return res.json()
+  },
+
+  async removeBattery(slaveId: number): Promise<any> {
+    const res = await fetch(`${BASE_URL}/api/batteries/${slaveId}`, {
+      method: 'DELETE',
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || 'Failed to remove battery')
+    }
+    return res.json()
+  },
+
+  async readAllBatteries(): Promise<MultiBatteryAuditResponse> {
+    const res = await fetch(`${BASE_URL}/api/batteries/read-all`, {
+      method: 'POST',
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || 'Failed to read all batteries')
+    }
+    return res.json()
+  },
+
+  async saveFleetAudit(operator: string = 'ADMINISTRATOR', notes: string = ''): Promise<{
+    success: boolean
+    audit_id: number
+    timestamp: number
+    summary: FleetSummary
+    message: string
+  }> {
+    const res = await fetch(`${BASE_URL}/api/batteries/save-audit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ operator, notes }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || 'Failed to save fleet audit snapshot')
+    }
+    return res.json()
+  },
+
+  async listSavedAudits(limit: number = 50): Promise<{ audits: SavedAuditItem[]; count: number }> {
+    const res = await fetch(`${BASE_URL}/api/batteries/audits?limit=${limit}`)
+    if (!res.ok) throw new Error('Failed to list saved audits')
+    return res.json()
+  },
+
+  async getSavedAudit(auditId: number): Promise<any> {
+    const res = await fetch(`${BASE_URL}/api/batteries/audits/${auditId}`)
+    if (!res.ok) throw new Error(`Failed to load audit #${auditId}`)
+    return res.json()
+  },
+
+  async deleteSavedAudit(auditId: number): Promise<any> {
+    const res = await fetch(`${BASE_URL}/api/batteries/audits/${auditId}`, {
+      method: 'DELETE',
+    })
+    if (!res.ok) throw new Error(`Failed to delete audit #${auditId}`)
+    return res.json()
+  },
 }
+
 

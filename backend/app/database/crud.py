@@ -167,6 +167,17 @@ class AuditCRUD:
         conn.close()
         return row_id
 
+    @classmethod
+    def log(cls, user_role: str = "OPERATOR", action: str = "WRITE_PARAMETER", details: str = "", **kwargs) -> int:
+        entry = {
+            "timestamp": time.time(),
+            "user_role": user_role,
+            "action": action,
+            "details": details,
+            **kwargs
+        }
+        return cls.record_entry(entry)
+
     @staticmethod
     def get_audit_trail(limit: int = 200, db_path: Optional[str] = None) -> list[dict[str, Any]]:
         conn = get_db_connection(db_path)
@@ -213,3 +224,84 @@ class SnapshotCRUD:
         d = dict(row)
         d["parameters"] = json.loads(d["parameters_json"])
         return d
+
+
+class MultiBatteryAuditCRUD:
+    @staticmethod
+    def save_audit(
+        battery_count: int,
+        summary: dict[str, Any],
+        audit_data: list[dict[str, Any]],
+        operator: str = "ADMINISTRATOR",
+        notes: str = "",
+        db_path: Optional[str] = None
+    ) -> int:
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO multi_battery_audits (
+                timestamp, battery_count, summary_json, audit_data_json, operator, notes
+            ) VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            time.time(),
+            battery_count,
+            json.dumps(summary),
+            json.dumps(audit_data),
+            operator,
+            notes
+        ))
+        audit_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return audit_id
+
+    @staticmethod
+    def list_audits(limit: int = 50, db_path: Optional[str] = None) -> list[dict[str, Any]]:
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, timestamp, battery_count, summary_json, operator, notes
+            FROM multi_battery_audits
+            ORDER BY timestamp DESC LIMIT ?
+        """, (limit,))
+        rows = []
+        for r in cursor.fetchall():
+            d = dict(r)
+            try:
+                d["summary"] = json.loads(d["summary_json"])
+            except Exception:
+                d["summary"] = {}
+            rows.append(d)
+        conn.close()
+        return rows
+
+    @staticmethod
+    def get_audit(audit_id: int, db_path: Optional[str] = None) -> Optional[dict[str, Any]]:
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM multi_battery_audits WHERE id = ?", (audit_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return None
+        d = dict(row)
+        try:
+            d["summary"] = json.loads(d["summary_json"])
+        except Exception:
+            d["summary"] = {}
+        try:
+            d["audit_data"] = json.loads(d["audit_data_json"])
+        except Exception:
+            d["audit_data"] = []
+        return d
+
+    @staticmethod
+    def delete_audit(audit_id: int, db_path: Optional[str] = None) -> bool:
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM multi_battery_audits WHERE id = ?", (audit_id,))
+        affected = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return affected > 0
+

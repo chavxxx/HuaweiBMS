@@ -8,6 +8,7 @@ from .protocol.register_map import RegisterDatabase
 from .serial_comm.serial_client import SerialClient, SerialConfig
 from .services.alarm_service import AlarmService
 from .services.config_service import ConfigService
+from .services.multi_battery_service import MultiBatteryService
 from .services.report_service import ReportService
 from .services.telemetry_service import TelemetryService
 from .services.update_service import UpdateService
@@ -35,6 +36,13 @@ class AppContext:
             register_db=self.register_db,
             simulator=self.simulator
         )
+        self.multi_battery_service = MultiBatteryService(
+            serial_client=self.serial_client,
+            register_db=self.register_db,
+            telemetry_service=self.telemetry_service
+        )
+        self.telemetry_service.multi_battery_service = self.multi_battery_service
+
         self.config_service = ConfigService(
             serial_client=self.serial_client,
             register_db=self.register_db,

@@ -302,6 +302,8 @@ class TelemetryService:
             "cycle_count": 2576,
             "rated_capacity_ah": 100,
             "max_current_limit_a": 150,
+            "slave_id": getattr(self.simulator, "slave_id", 1),
+            "battery_name": f"Battery #{getattr(self.simulator, 'slave_id', 1)}",
         }
 
         self.latest_electrical = {
@@ -517,6 +519,8 @@ class TelemetryService:
                     "cycle_count": self._hardware_cycle_count,
                     "rated_capacity_ah": self._hardware_rated_capacity or 100,
                     "max_current_limit_a": self._hardware_max_current or 150,
+                    "slave_id": slave_id,
+                    "battery_name": f"Battery #{slave_id}",
                 }
 
                 max_current = float(self._hardware_max_current or 150)

@@ -156,6 +156,20 @@ def init_db(db_path: Optional[str] = None) -> None:
         );
     """)
 
+    # 7. Multi-Battery Audits & Comparison Snapshots
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS multi_battery_audits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp REAL NOT NULL,
+            battery_count INTEGER NOT NULL,
+            summary_json TEXT NOT NULL,
+            audit_data_json TEXT NOT NULL,
+            operator TEXT DEFAULT 'ADMINISTRATOR',
+            notes TEXT
+        );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_mba_timestamp ON multi_battery_audits(timestamp);")
+
     conn.commit()
     conn.close()
     logger.info("Database initialized successfully.")

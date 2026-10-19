@@ -3,6 +3,7 @@ import {
   Activity,
   AlertOctagon,
   BatteryCharging,
+  Columns3,
   Cpu,
   Database,
   FileSpreadsheet,
@@ -40,12 +41,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navItems: NavItem[] = [
     // Category: Core
     { id: 'dashboard', label: '1. Dashboard', icon: LayoutDashboard, category: 'OVERVIEW' },
-    { id: 'connect', label: '2. Connect Device', icon: Radio, category: 'OVERVIEW' },
+    { id: 'compare', label: '2. Battery Comparison', icon: Columns3, category: 'OVERVIEW' },
+    { id: 'connect', label: '3. Connect Device', icon: Radio, category: 'OVERVIEW' },
 
     // Category: Telemetry
-    { id: 'electrical', label: '3. Electrical Monitoring', icon: Zap, category: 'MONITORING' },
-    { id: 'cells', label: '4. Cell & Module View', icon: BatteryCharging, category: 'MONITORING' },
-    { id: 'alarms', label: '5. Alarms & Faults', icon: AlertOctagon, badge: activeAlarmCount, category: 'MONITORING' },
+    { id: 'electrical', label: '4. Electrical Monitoring', icon: Zap, category: 'MONITORING' },
+    { id: 'cells', label: '5. Cell & Module View', icon: BatteryCharging, category: 'MONITORING' },
+    { id: 'alarms', label: '6. Alarms & Faults', icon: AlertOctagon, badge: activeAlarmCount, category: 'MONITORING' },
 
     // Category: Configuration
     { id: 'configuration', label: '6. Configuration', icon: Sliders, category: 'CONTROL' },

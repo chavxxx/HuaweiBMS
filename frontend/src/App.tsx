@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Header } from './components/Header'
+import { MultiBatteryBar } from './components/MultiBatteryBar'
 import { Sidebar } from './components/Sidebar'
 import { AlarmsFaultsPage } from './pages/AlarmsFaultsPage'
 import { ApplicationSettingsPage } from './pages/ApplicationSettingsPage'
 import { AuditLogPage } from './pages/AuditLogPage'
+import { BatteryComparisonPage } from './pages/BatteryComparisonPage'
 import { CellModuleMonitoringPage } from './pages/CellModuleMonitoringPage'
 import { ConfigHistoryPage } from './pages/ConfigHistoryPage'
 import { ConfigurationPage } from './pages/ConfigurationPage'
@@ -20,6 +22,7 @@ import type { CellData, ElectricalData, FreshnessStatus, PageId, TelemetryData, 
 export function App() {
   const [currentPage, setCurrentPage] = useState<PageId>('dashboard')
   const [userRole, setUserRole] = useState<UserRole>('ADMINISTRATOR')
+  const [activeSlaveId, setActiveSlaveId] = useState<number>(1)
   const [telemetry, setTelemetry] = useState<TelemetryData | null>(null)
   const [electrical, setElectrical] = useState<ElectricalData | null>(null)
   const [cells, setCells] = useState<CellData | null>(null)
@@ -117,6 +120,16 @@ export function App() {
         onNavigateAlarms={() => setCurrentPage('alarms')}
       />
 
+      {/* Multi-Battery Stepper Bar ("View all batteries one by one") */}
+      <MultiBatteryBar
+        activeSlaveId={activeSlaveId}
+        onSelectBattery={(sid) => {
+          setActiveSlaveId(sid)
+          fetchTelemetry()
+        }}
+        onNavigateCompare={() => setCurrentPage('compare')}
+      />
+
       <div className="flex-1 flex overflow-hidden">
         {/* Navigation Sidebar */}
         <Sidebar
@@ -134,6 +147,18 @@ export function App() {
               cells={cells}
               freshness={freshness}
               onNavigate={setCurrentPage}
+            />
+          )}
+
+          {currentPage === 'compare' && (
+            <BatteryComparisonPage
+              userRole={userRole}
+              activeSlaveId={activeSlaveId}
+              onSelectBattery={(sid) => {
+                setActiveSlaveId(sid)
+                fetchTelemetry()
+              }}
+              onNavigatePage={setCurrentPage}
             />
           )}
 
