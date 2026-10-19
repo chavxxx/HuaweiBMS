@@ -1,8 +1,7 @@
-"""Update and Version Checking Service for HuaweiBMS Git Repository."""
-
 import json
 import logging
 import os
+import ssl
 import subprocess
 import sys
 import time
@@ -15,10 +14,71 @@ from ..database.crud import AuditCRUD
 
 logger = logging.getLogger("huawei_bms.update_service")
 
-CURRENT_VERSION = "v1.0.7"
+CURRENT_VERSION = "v1.0.9"
 DEFAULT_REPO_OWNER = "chavxxx"
 DEFAULT_REPO_NAME = "HuaweiBMS"
 DEFAULT_REPO_URL = f"https://github.com/{DEFAULT_REPO_OWNER}/{DEFAULT_REPO_NAME}"
+
+
+def _build_ssl_context() -> ssl.SSLContext:
+    """Create SSL context with certifi CA bundle if available, else default."""
+    try:
+        import certifi
+        ca_file = certifi.where()
+        if os.path.exists(ca_file):
+            return ssl.create_default_context(cafile=ca_file)
+    except Exception:
+        pass
+    try:
+        return ssl.create_default_context()
+    except Exception:
+        return ssl._create_unverified_context()
+
+
+def _safe_fetch_json(url: str, headers: dict[str, str], timeout: int = 6) -> tuple[Optional[Any], Optional[int], Optional[str]]:
+    """Fetch JSON from URL with SSL verification fallback for frozen bundles and environments without local certificates.
+    
+    Returns (data, http_status_code, error_message).
+    """
+    req = urllib.request.Request(url, headers=headers)
+    ctx = _build_ssl_context()
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            if resp.status == 200:
+                return json.loads(resp.read().decode("utf-8")), resp.status, None
+            return None, resp.status, None
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None, 404, "Not Found (404)"
+        logger.warning("HTTP %d error requesting %s: %s", e.code, url, e)
+        return None, e.code, str(e)
+    except urllib.error.URLError as e:
+        err_msg = str(e)
+        if (
+            "CERTIFICATE_VERIFY_FAILED" in err_msg
+            or "certificate verify failed" in err_msg
+            or "local issuer certificate" in err_msg
+            or "self signed certificate" in err_msg
+        ):
+            logger.warning("SSL verification failed for %s (%s); retrying with unverified SSL context", url, err_msg)
+            try:
+                unverified_ctx = ssl._create_unverified_context()
+                with urllib.request.urlopen(req, timeout=timeout, context=unverified_ctx) as resp:
+                    if resp.status == 200:
+                        return json.loads(resp.read().decode("utf-8")), resp.status, None
+                    return None, resp.status, None
+            except urllib.error.HTTPError as retry_http_err:
+                if retry_http_err.code == 404:
+                    return None, 404, "Not Found (404)"
+                return None, retry_http_err.code, str(retry_http_err)
+            except Exception as retry_err:
+                logger.error("Retry with unverified context failed for %s: %s", url, retry_err)
+                return None, None, str(retry_err)
+        return None, None, str(e)
+    except Exception as e:
+        logger.warning("Unexpected error fetching %s: %s", url, e)
+        return None, None, str(e)
 
 
 def find_project_root() -> Path:
@@ -111,69 +171,111 @@ class UpdateService:
         release_notes = ""
         error_msg = None
 
-        # 1. Fetch latest release from GitHub API
+        # 1. Fetch latest release and tags from GitHub API
         headers = {
             "User-Agent": "HuaweiBMS-UpdateChecker/1.0",
             "Accept": "application/vnd.github.v3+json"
         }
+        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
 
-        try:
-            # First try releases/latest
-            rel_req = urllib.request.Request(f"{api_base}/releases/latest", headers=headers)
+        api_success = False
+        api_404_count = 0
+
+        # Try releases/latest
+        rel_data, rel_status, rel_err = _safe_fetch_json(f"{api_base}/releases/latest", headers=headers)
+        if rel_status == 200 and isinstance(rel_data, dict):
+            remote_version = rel_data.get("tag_name", remote_version)
+            release_notes = rel_data.get("body", "")
+            api_success = True
+        elif rel_status == 404:
+            api_404_count += 1
+        elif rel_err:
+            error_msg = rel_err
+
+        # Try tags
+        tags_data, tags_status, tags_err = _safe_fetch_json(f"{api_base}/tags", headers=headers)
+        if tags_status == 200 and isinstance(tags_data, list) and len(tags_data) > 0:
+            latest_tag = tags_data[0].get("name", "")
+            if parse_version_tuple(latest_tag) > parse_version_tuple(remote_version):
+                remote_version = latest_tag
+            if not remote_sha:
+                remote_sha = tags_data[0].get("commit", {}).get("sha", "")
+            api_success = True
+            error_msg = None
+        elif tags_status == 404:
+            api_404_count += 1
+        elif tags_err and not error_msg:
+            error_msg = tags_err
+
+        # Try commits/main
+        c_data, c_status, c_err = _safe_fetch_json(f"{api_base}/commits/main", headers=headers)
+        if c_status == 200 and isinstance(c_data, dict):
+            remote_sha = c_data.get("sha", remote_sha)
+            commit_obj = c_data.get("commit") or {}
+            raw_msg = commit_obj.get("message") or ""
+            msg_lines = raw_msg.splitlines()
+            latest_commit_msg = msg_lines[0] if msg_lines else ""
+            author_obj = commit_obj.get("author") or {}
+            latest_commit_date = author_obj.get("date", "")
+            api_success = True
+            error_msg = None
+        elif c_status == 404:
+            api_404_count += 1
+        elif c_err and not error_msg:
+            error_msg = c_err
+
+        # If all API endpoints return 404, the repo may be private
+        if api_404_count >= 2 and not api_success:
+            if not token:
+                error_msg = (
+                    f"Repository '{self.repo_owner}/{self.repo_name}' is private or inaccessible anonymously (HTTP 404). "
+                    "Make the repository public or set GITHUB_TOKEN environment variable."
+                )
+
+        # 2. Offline / Git CLI fallback if available in git environment
+        if local_info["is_git"]:
+            # Query git remote tags
             try:
-                with urllib.request.urlopen(rel_req, timeout=5) as resp:
-                    if resp.status == 200:
-                        rel_data = json.loads(resp.read().decode("utf-8"))
-                        remote_version = rel_data.get("tag_name", remote_version)
-                        release_notes = rel_data.get("body", "")
-            except urllib.error.HTTPError as e:
-                if e.code != 404:
-                    logger.warning("Releases API error: %s", e)
-
-            # Check tags list to get newest tag (releases/latest only updates when GitHub Release is drafted)
-            tags_req = urllib.request.Request(f"{api_base}/tags", headers=headers)
-            try:
-                with urllib.request.urlopen(tags_req, timeout=5) as resp:
-                    if resp.status == 200:
-                        tags_data = json.loads(resp.read().decode("utf-8"))
-                        if tags_data and len(tags_data) > 0:
-                            latest_tag = tags_data[0].get("name", "")
-                            if parse_version_tuple(latest_tag) > parse_version_tuple(remote_version):
-                                remote_version = latest_tag
-            except Exception as e:
-                logger.warning("Tags API error: %s", e)
-
-            # Check latest commit on main branch
-            commit_req = urllib.request.Request(f"{api_base}/commits/main", headers=headers)
-            try:
-                with urllib.request.urlopen(commit_req, timeout=5) as resp:
-                    if resp.status == 200:
-                        c_data = json.loads(resp.read().decode("utf-8"))
-                        remote_sha = c_data.get("sha", remote_sha)
-                        latest_commit_msg = c_data.get("commit", {}).get("message", "").splitlines()[0]
-                        latest_commit_date = c_data.get("commit", {}).get("author", {}).get("date", "")
-            except Exception as e:
-                logger.warning("Commits API error: %s", e)
-
-        except Exception as e:
-            logger.error("Failed to query GitHub API: %s", e)
-            error_msg = f"GitHub API check failed: {str(e)}"
-
-        # 2. Offline / Git CLI fallback if API was unavailable or if local is a git repo
-        if (not remote_sha or error_msg) and local_info["is_git"]:
-            try:
-                ls_out = subprocess.check_output(
-                    ["git", "ls-remote", "origin", "refs/heads/main"],
+                tags_out = subprocess.check_output(
+                    ["git", "ls-remote", "--tags", "origin"],
                     cwd=str(self.project_root),
                     text=True,
                     timeout=5,
                     stderr=subprocess.DEVNULL
                 ).strip()
-                if ls_out:
-                    remote_sha = ls_out.split()[0]
-                    error_msg = None
+                if tags_out:
+                    found_tags = []
+                    for line in tags_out.splitlines():
+                        parts = line.split()
+                        if len(parts) == 2 and parts[1].startswith("refs/tags/"):
+                            t_clean = parts[1].replace("refs/tags/", "").replace("^{}", "")
+                            found_tags.append(t_clean)
+                    if found_tags:
+                        found_tags.sort(key=parse_version_tuple)
+                        newest_git_tag = found_tags[-1]
+                        if parse_version_tuple(newest_git_tag) > parse_version_tuple(remote_version):
+                            remote_version = newest_git_tag
+                        error_msg = None
             except Exception as e:
-                logger.warning("git ls-remote failed: %s", e)
+                logger.debug("git ls-remote --tags failed: %s", e)
+
+            # Query git remote main branch commit
+            if not remote_sha or error_msg:
+                try:
+                    ls_out = subprocess.check_output(
+                        ["git", "ls-remote", "origin", "refs/heads/main"],
+                        cwd=str(self.project_root),
+                        text=True,
+                        timeout=5,
+                        stderr=subprocess.DEVNULL
+                    ).strip()
+                    if ls_out:
+                        remote_sha = ls_out.split()[0]
+                        error_msg = None
+                except Exception as e:
+                    logger.warning("git ls-remote failed: %s", e)
 
         # 3. Determine if update is available
         has_update = False

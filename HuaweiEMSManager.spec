@@ -19,8 +19,15 @@ datas = [
     (str(DATA_DIR), "data"),
 ]
 
+try:
+    datas += collect_data_files("certifi")
+except Exception:
+    pass
+
 # Collect hidden submodules
 hiddenimports = [
+    "certifi",
+    "ssl",
     "uvicorn",
     "uvicorn.logging",
     "uvicorn.loops",

@@ -49,18 +49,43 @@ def test_check_for_updates_available(mock_urlopen):
 
 @patch("urllib.request.urlopen")
 def test_check_for_updates_up_to_date(mock_urlopen):
-    # Mock GitHub releases/latest returning same version v1.0.4
+    # Mock GitHub releases/latest returning same version v2.0.0
     mock_resp = MagicMock()
     mock_resp.status = 200
-    mock_resp.read.return_value = b'{"tag_name": "v1.0.4", "body": "Current stable"}'
+    mock_resp.read.return_value = b'{"tag_name": "v2.0.0", "body": "Current stable"}'
     mock_urlopen.return_value.__enter__.return_value = mock_resp
 
     svc = UpdateService()
-    svc.current_version = "v1.0.4"
-    result = svc.check_for_updates()
+    svc.current_version = "v2.0.0"
+    with patch.object(svc, "get_local_git_info", return_value={"is_git": False, "commit_sha": "", "short_sha": "unknown", "branch": "main", "tag": "v2.0.0"}):
+        result = svc.check_for_updates()
 
-    assert result["latest_version"] == "v1.0.4"
-    assert result["status"] in ("UP_TO_DATE", "UPDATE_AVAILABLE")
+    assert result["latest_version"] == "v2.0.0"
+    assert result["status"] == "UP_TO_DATE"
+
+
+def test_safe_fetch_json_ssl_verification_fallback():
+    """Verify that SSL certificate verification failures automatically fallback to unverified context."""
+    from app.services.update_service import _safe_fetch_json
+    import urllib.error
+
+    calls = []
+    def mock_urlopen_fn(req, timeout=6, context=None):
+        calls.append(context)
+        if len(calls) == 1:
+            raise urllib.error.URLError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1010)")
+        mock_r = MagicMock()
+        mock_r.__enter__.return_value = mock_r
+        mock_r.status = 200
+        mock_r.read.return_value = b'{"tag_name": "v1.0.8"}'
+        return mock_r
+
+    with patch("urllib.request.urlopen", side_effect=mock_urlopen_fn):
+        data, status, err = _safe_fetch_json("https://api.github.com/repos/chavxxx/HuaweiBMS/releases/latest", {})
+        assert status == 200
+        assert data == {"tag_name": "v1.0.8"}
+        assert len(calls) == 2
+        assert err is None
 
 
 def test_api_check_updates_endpoint(client):
