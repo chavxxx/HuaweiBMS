@@ -34,6 +34,8 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
+copy scripts\HuaweiEMSManager-Debug.bat dist\HuaweiEMSManager\
+python -c "import shutil, os, glob, webview; lib_dir=os.path.join(os.path.dirname(webview.__file__), 'lib'); [shutil.copy(f, 'dist/HuaweiEMSManager') for f in glob.glob(os.path.join(lib_dir, '*.dll'))]; [shutil.copy(f, 'dist/HuaweiEMSManager/_internal') for f in glob.glob(os.path.join(lib_dir, '*.dll')) if os.path.exists('dist/HuaweiEMSManager/_internal')]; native_dlls=glob.glob(os.path.join(lib_dir, 'runtimes', 'win-x64', 'native', '*.dll')); [shutil.copy(f, 'dist/HuaweiEMSManager') for f in native_dlls]; [shutil.copy(f, 'dist/HuaweiEMSManager/_internal') for f in native_dlls if os.path.exists('dist/HuaweiEMSManager/_internal')]"
 
 echo.
 echo ==============================================================================

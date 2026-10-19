@@ -17,7 +17,11 @@ def get_user_data_dir() -> Path:
         p.mkdir(parents=True, exist_ok=True)
         return p
     if getattr(sys, "frozen", False):
-        user_dir = Path.home() / ".huawei_bms_manager"
+        if sys.platform == "win32":
+            base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+            user_dir = Path(base) / "HuaweiEMSManager" / "data"
+        else:
+            user_dir = Path.home() / ".huawei_bms_manager" / "data"
         user_dir.mkdir(parents=True, exist_ok=True)
         return user_dir
     dev_dir = Path(__file__).resolve().parent.parent.parent / "data"

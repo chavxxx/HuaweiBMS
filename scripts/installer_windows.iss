@@ -2,7 +2,7 @@
 ; Generates a professional Windows Setup Installer (.exe) with desktop & start menu shortcuts
 
 #define MyAppName "Huawei EMS B1 Battery Manager"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.4"
 #define MyAppPublisher "Huawei EMS BMS Project"
 #define MyAppURL "https://github.com/example/huawei-ems-b1-manager"
 #define MyAppExeName "HuaweiEMSManager.exe"
@@ -42,7 +42,8 @@ Source: "..\docs\INSTALLATION_WINDOWS.md"; DestDir: "{app}\docs"; Flags: ignorev
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
+Name: "{autoprograms}\{#MyAppName} (Diagnostic Console)"; Filename: "{app}\HuaweiEMSManager-Debug.bat"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent; WorkingDir: "{app}"
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent runasoriginaluser; WorkingDir: "{app}"

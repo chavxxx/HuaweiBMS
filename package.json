@@ -1,6 +1,6 @@
 {
   "name": "huawei-ems-b1-battery-manager",
-  "version": "1.1.1",
+  "version": "1.1.4",
   "description": "Production-grade Huawei EMS B1 BMS Management and Monitoring Application over USB-to-RS485",
   "private": true,
   "scripts": {

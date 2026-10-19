@@ -8,7 +8,7 @@ from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 block_cipher = None
 
-ROOT_DIR = Path.cwd()
+ROOT_DIR = Path(SPECPATH).resolve() if "SPECPATH" in locals() else Path.cwd().resolve()
 FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
 DATA_DIR = ROOT_DIR / "backend" / "app" / "data"
 
@@ -19,8 +19,44 @@ datas = [
     (str(DATA_DIR), "data"),
 ]
 
+binaries = []
+
 try:
     datas += collect_data_files("certifi")
+except Exception:
+    pass
+
+if sys.platform == "win32":
+    try:
+        from PyInstaller.utils.hooks import collect_dynamic_libs
+        datas += collect_data_files("webview")
+        binaries += collect_dynamic_libs("webview")
+    except Exception:
+        pass
+    try:
+        from PyInstaller.utils.hooks import collect_dynamic_libs
+        datas += collect_data_files("pythonnet")
+        binaries += collect_dynamic_libs("pythonnet")
+    except Exception:
+        pass
+
+# Explicitly ensure webview runtime binaries and interop DLLs are bundled in root, _internal, and webview/lib
+try:
+    import webview
+    webview_lib = Path(webview.__file__).parent / "lib"
+    if webview_lib.exists():
+        for item in webview_lib.iterdir():
+            if item.is_file():
+                datas.append((str(item), "."))
+                datas.append((str(item), "webview/lib"))
+            elif item.is_dir() and item.name == "runtimes":
+                for arch in ["win-x64", "win-x86", "win-arm64"]:
+                    native_dir = item / arch / "native"
+                    if native_dir.exists():
+                        for dll in native_dir.glob("*.dll"):
+                            datas.append((str(dll), "."))
+                            datas.append((str(dll), f"webview/lib/runtimes/{arch}/native"))
+                            datas.append((str(dll), f"runtimes/{arch}/native"))
 except Exception:
     pass
 
@@ -73,6 +109,13 @@ elif sys.platform == "win32":
     hiddenimports.extend([
         "webview.platforms.winforms",
         "webview.platforms.edgechromium",
+        "webview.platforms.mshtml",
+        "webview.platforms.win32",
+        "clr",
+        "pythonnet",
+        "clr_loader",
+        "winreg",
+        "ctypes.wintypes",
     ])
 else:
     hiddenimports.extend([
@@ -92,7 +135,7 @@ elif (ROOT_DIR / "assets" / "icon.png").exists() and sys.platform != "win32":
 a = Analysis(
     [str(ROOT_DIR / "backend" / "app" / "desktop.py")],
     pathex=[str(ROOT_DIR / "backend")],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
@@ -116,7 +159,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -132,7 +175,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name="HuaweiEMSManager",
 )
@@ -145,8 +188,8 @@ if sys.platform == "darwin":
         icon=icon_file,
         bundle_identifier="com.huawei.bms.manager",
         info_plist={
-            "CFBundleShortVersionString": "1.0.0",
-            "CFBundleVersion": "1.0.0",
+            "CFBundleShortVersionString": "1.1.4",
+            "CFBundleVersion": "1.1.4",
             "NSHighResolutionCapable": "True",
             "NSRequiresAquaSystemAppearance": "False",
             "LSMinimumSystemVersion": "10.15",

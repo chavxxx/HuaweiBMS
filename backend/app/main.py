@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Huawei EMS B1 Battery Manager API",
     description="Production-grade local desktop and serial communication service for Huawei EMS B1 / ESS BMS.",
-    version="1.0.0",
+    version="1.1.4",
     lifespan=lifespan
 )
 
@@ -147,7 +147,7 @@ def health_check():
     return {
         "status": "healthy",
         "app": "Huawei EMS B1 Battery Manager",
-        "version": "1.0.0",
+        "version": "1.1.4",
         "simulation_mode": app_context.telemetry_service.use_simulation,
         "connected": app_context.serial_client.is_connected
     }
