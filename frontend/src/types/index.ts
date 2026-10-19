@@ -53,6 +53,8 @@ export interface TelemetryData {
   max_current_limit_a?: number | null
   bootloader_version?: string
   reported_cell_count?: number
+  slave_id?: number
+  battery_name?: string
 }
 
 export interface ElectricalData {

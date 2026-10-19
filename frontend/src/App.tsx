@@ -39,6 +39,9 @@ export function App() {
         setElectrical(data.electrical)
         setCells(data.cells)
         setFreshness(data.freshness)
+        if (data.telemetry?.slave_id) {
+          setActiveSlaveId(data.telemetry.slave_id)
+        }
       }
     } catch (e) {
       // ignore
@@ -61,7 +64,12 @@ export function App() {
           try {
             const data = JSON.parse(event.data)
             if (data.type === 'TELEMETRY_UPDATE' || data.type === 'INITIAL_STATE') {
-              if (data.telemetry) setTelemetry(data.telemetry)
+              if (data.telemetry) {
+                setTelemetry(data.telemetry)
+                if (data.telemetry.slave_id) {
+                  setActiveSlaveId(data.telemetry.slave_id)
+                }
+              }
               if (data.electrical) setElectrical(data.electrical)
               if (data.cells) setCells(data.cells)
               if (data.freshness) setFreshness(data.freshness)

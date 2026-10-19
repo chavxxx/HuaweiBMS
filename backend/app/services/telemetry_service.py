@@ -209,6 +209,7 @@ class TelemetryService:
 
     def _polling_loop(self) -> None:
         last_db_save = 0.0
+        last_reconnect_attempt = 0.0
         while not self._stop_event.is_set():
             loop_start = time.time()
             try:
@@ -217,7 +218,20 @@ class TelemetryService:
                 elif self.serial_client.is_connected:
                     self._poll_hardware_bms()
                 else:
-                    # Hardware disconnected, wait
+                    # Hardware disconnected - check auto_reconnect
+                    now = time.time()
+                    if (
+                        getattr(self.serial_client.config, "auto_reconnect", True)
+                        and self.serial_client.config.port
+                        and (now - last_reconnect_attempt >= 3.0)
+                    ):
+                        last_reconnect_attempt = now
+                        try:
+                            logger.info("Attempting auto-reconnect to %s...", self.serial_client.config.port)
+                            if self.serial_client.connect():
+                                logger.info("Auto-reconnect successful on %s", self.serial_client.config.port)
+                        except Exception as e:
+                            logger.debug("Auto-reconnect attempt failed: %s", e)
                     time.sleep(0.5)
                     continue
 
@@ -613,112 +627,111 @@ class TelemetryService:
                             self._hardware_rated_capacity = 150
                             self._hardware_max_current = 150
 
+                    # Cell metrics
+                    if cell_voltages_v:
+                        min_v = min(cell_voltages_v)
+                        max_v = max(cell_voltages_v)
+                        avg_v = round(sum(cell_voltages_v) / len(cell_voltages_v), 3)
+                        delta_v_mv = round((max_v - min_v) * 1000.0, 1)
+                    else:
+                        min_v = round(v_pack / 16.0, 3) if v_pack > 0 else 0.0
+                        max_v = min_v
+                        avg_v = min_v
+                        delta_v_mv = 0.0
 
-                # Cell metrics
-                if cell_voltages_v:
-                    min_v = min(cell_voltages_v)
-                    max_v = max(cell_voltages_v)
-                    avg_v = round(sum(cell_voltages_v) / len(cell_voltages_v), 3)
-                    delta_v_mv = round((max_v - min_v) * 1000.0, 1)
-                else:
-                    min_v = round(v_pack / 16.0, 3) if v_pack > 0 else 0.0
-                    max_v = min_v
-                    avg_v = min_v
-                    delta_v_mv = 0.0
+                    min_t = min(temps_arr) if temps_arr else pack_temp
+                    max_t = max(temps_arr) if temps_arr else pack_temp
 
-                min_t = min(temps_arr) if temps_arr else pack_temp
-                max_t = max(temps_arr) if temps_arr else pack_temp
+                    rated_cap_ah = self._hardware_rated_capacity or 150
+                    discharged_ah = self._hardware_discharged_ah or 0
+                    equiv_cycles = round(discharged_ah / max(rated_cap_ah, 1), 1)
 
-                rated_cap_ah = self._hardware_rated_capacity or 150
-                discharged_ah = self._hardware_discharged_ah or 0
-                equiv_cycles = round(discharged_ah / max(rated_cap_ah, 1), 1)
-
-                # Populate verified physical telemetry
-                self.latest_telemetry = {
-                    "timestamp": now,
-                    "device_model": self._hardware_device_model or "Huawei ESM-48150B1 (Physical Hardware)",
-                    "serial_number": self._hardware_serial_number or f"HW-ESM-{slave_id:02X}",
-                    "firmware_version": self._hardware_firmware_version or "V2.70",
-                    "hardware_rev": self._hardware_hardware_rev or "Rev 69",
-                    "bootloader_version": self._hardware_bootloader_version or "V1.02",
-                    "mfg_date": self._hardware_mfg_date or "2025-05-31",
-                    "is_simulation": False,
-                    "identification_verified": True,
-                    "soc": soc,
-                    "soh": soh,
-                    "total_voltage": v_pack,
-                    "current": current,
-                    "power": power,
-                    "temperature": pack_temp,
-                    "bms_status": op_mode_raw,
-                    "operating_state": state_str,
-                    "working_mode": op_mode_raw,
-                    "online_modules_count": module_online,
-                    "charge_permission": bool(permission_flags & 1),
-                    "discharge_permission": bool(permission_flags & 2),
-                    "active_alarm_codes": active_alarms,
-                    "cycle_count": self._hardware_discharge_cycles or self._hardware_cycle_count or 0,
-                    "discharged_capacity_ah": discharged_ah,
-                    "equivalent_full_cycles": equiv_cycles,
-                    "rated_capacity_ah": rated_cap_ah,
-                    "max_current_limit_a": self._hardware_max_current or 150,
-                    "reported_cell_count": self._hardware_reported_cell_count or len(cell_voltages_v),
-                    "slave_id": slave_id,
-                    "battery_name": f"Battery #{slave_id}",
-                }
-
-                max_current = float(self._hardware_max_current or 150)
-                max_power_limit = round(max_current * v_pack, 1)
-                discharged_kwh = round((discharged_ah * v_pack) / 1000.0, 2)
-
-                self.latest_electrical = {
-                    "timestamp": now,
-                    "total_voltage": v_pack,
-                    "current": current,
-                    "charge_power": abs(power) if power < 0 else 0.0,
-                    "discharge_power": power if power > 0 else 0.0,
-                    "dc_bus_voltage": v_bus,
-                    "bus_delta_voltage": round(v_bus - v_pack, 2),
-                    "charge_energy": 0.0,
-                    "discharge_energy": discharged_kwh,
-                    "max_charge_power_limit": max_power_limit,
-                    "max_discharge_power_limit": max_power_limit,
-                    "contactor_state": "Closed" if state_str in ("Charging", "Discharging", "Normal") else "Standby",
-                    "precharge_state": "Completed",
-                    "insulation_resistance_kohm": 2500.0,
-                    "calculated_metrics": {
-                        "power_is_calculated": True,
-                        "power_formula": "P = V * I / 1000 kW"
+                    # Populate verified physical telemetry
+                    self.latest_telemetry = {
+                        "timestamp": now,
+                        "device_model": self._hardware_device_model or "Huawei ESM-48150B1 (Physical Hardware)",
+                        "serial_number": self._hardware_serial_number or f"HW-ESM-{slave_id:02X}",
+                        "firmware_version": self._hardware_firmware_version or "V2.70",
+                        "hardware_rev": self._hardware_hardware_rev or "Rev 69",
+                        "bootloader_version": self._hardware_bootloader_version or "V1.02",
+                        "mfg_date": self._hardware_mfg_date or "2025-05-31",
+                        "is_simulation": False,
+                        "identification_verified": True,
+                        "soc": soc,
+                        "soh": soh,
+                        "total_voltage": v_pack,
+                        "current": current,
+                        "power": power,
+                        "temperature": pack_temp,
+                        "bms_status": op_mode_raw,
+                        "operating_state": state_str,
+                        "working_mode": op_mode_raw,
+                        "online_modules_count": module_online,
+                        "charge_permission": bool(permission_flags & 1),
+                        "discharge_permission": bool(permission_flags & 2),
+                        "active_alarm_codes": active_alarms,
+                        "cycle_count": self._hardware_discharge_cycles or self._hardware_cycle_count or 0,
+                        "discharged_capacity_ah": discharged_ah,
+                        "equivalent_full_cycles": equiv_cycles,
+                        "rated_capacity_ah": rated_cap_ah,
+                        "max_current_limit_a": self._hardware_max_current or 150,
+                        "reported_cell_count": self._hardware_reported_cell_count or len(cell_voltages_v),
+                        "slave_id": slave_id,
+                        "battery_name": f"Battery #{slave_id}",
                     }
-                }
 
-                self.latest_cells = {
-                    "timestamp": now,
-                    "cell_voltages": cell_voltages_v,
-                    "cell_count": len(cell_voltages_v),
-                    "min_cell_voltage": min_v,
-                    "max_cell_voltage": max_v,
-                    "avg_cell_voltage": avg_v,
-                    "cell_voltage_delta": round(max_v - min_v, 3),
-                    "cell_voltage_delta_mv": delta_v_mv,
-                    "temperatures": temps_arr,
-                    "min_cell_temp": min_t,
-                    "max_cell_temp": max_t,
-                    "temperature_spread": round(max_t - min_t, 1),
-                    "balancing_active": [False] * len(cell_voltages_v),
-                    "module_status": "Normal",
-                    "module_voltage": v_pack,
-                    "module_current": current,
-                }
+                    max_current = float(self._hardware_max_current or 150)
+                    max_power_limit = round(max_current * v_pack, 1)
+                    discharged_kwh = round((discharged_ah * v_pack) / 1000.0, 2)
 
-                self._notify_listeners({
-                    "type": "TELEMETRY_UPDATE",
-                    "freshness": self.get_freshness_status(),
-                    "telemetry": self.latest_telemetry,
-                    "electrical": self.latest_electrical,
-                    "cells": self.latest_cells
-                })
-                return
+                    self.latest_electrical = {
+                        "timestamp": now,
+                        "total_voltage": v_pack,
+                        "current": current,
+                        "charge_power": abs(power) if power < 0 else 0.0,
+                        "discharge_power": power if power > 0 else 0.0,
+                        "dc_bus_voltage": v_bus,
+                        "bus_delta_voltage": round(v_bus - v_pack, 2),
+                        "charge_energy": 0.0,
+                        "discharge_energy": discharged_kwh,
+                        "max_charge_power_limit": max_power_limit,
+                        "max_discharge_power_limit": max_power_limit,
+                        "contactor_state": "Closed" if state_str in ("Charging", "Discharging", "Normal") else "Standby",
+                        "precharge_state": "Completed",
+                        "insulation_resistance_kohm": 2500.0,
+                        "calculated_metrics": {
+                            "power_is_calculated": True,
+                            "power_formula": "P = V * I / 1000 kW"
+                        }
+                    }
+
+                    self.latest_cells = {
+                        "timestamp": now,
+                        "cell_voltages": cell_voltages_v,
+                        "cell_count": len(cell_voltages_v),
+                        "min_cell_voltage": min_v,
+                        "max_cell_voltage": max_v,
+                        "avg_cell_voltage": avg_v,
+                        "cell_voltage_delta": round(max_v - min_v, 3),
+                        "cell_voltage_delta_mv": delta_v_mv,
+                        "temperatures": temps_arr,
+                        "min_cell_temp": min_t,
+                        "max_cell_temp": max_t,
+                        "temperature_spread": round(max_t - min_t, 1),
+                        "balancing_active": [False] * len(cell_voltages_v),
+                        "module_status": "Normal",
+                        "module_voltage": v_pack,
+                        "module_current": current,
+                    }
+
+                    self._notify_listeners({
+                        "type": "TELEMETRY_UPDATE",
+                        "freshness": self.get_freshness_status(),
+                        "telemetry": self.latest_telemetry,
+                        "electrical": self.latest_electrical,
+                        "cells": self.latest_cells
+                    })
+                    return
 
                 # Fallback attempt: Huawei LUNA2000 / ESS Residential register layout (Base 37000)
                 req_frame = adapter.build_read_holding_registers(slave_id, 37000, 28)
@@ -726,6 +739,13 @@ class TelemetryService:
 
                 if not resp.success:
                     logger.warning("Hardware poll failed on both EMS (0x0000) and ESS (37000): %s", resp.error_message)
+                    self._notify_listeners({
+                        "type": "TELEMETRY_UPDATE",
+                        "freshness": self.get_freshness_status(),
+                        "telemetry": self.latest_telemetry,
+                        "electrical": self.latest_electrical,
+                        "cells": self.latest_cells
+                    })
                     return
 
                 words = resp.values

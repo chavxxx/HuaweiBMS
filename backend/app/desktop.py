@@ -19,6 +19,11 @@ import webbrowser
 from pathlib import Path
 from typing import Optional
 
+# Ensure parent backend directory is in sys.path when running from source
+backend_dir = str(Path(__file__).resolve().parent.parent)
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
+
 # Setup robust log directory for standalone/frozen environments
 def get_log_dir() -> Path:
     if sys.platform == "win32":

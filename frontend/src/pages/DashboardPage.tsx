@@ -15,6 +15,7 @@ import {
   Thermometer,
   Zap,
 } from 'lucide-react'
+import { api } from '../services/api'
 import type { CellData, ElectricalData, FreshnessStatus, TelemetryData } from '../types'
 
 interface DashboardPageProps {
@@ -78,7 +79,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               </span>
             </div>
             <p className="text-xs text-slate-400 font-mono mt-0.5">
-              S/N: {telemetry?.serial_number || 'N/A'} · Mfg: {telemetry?.mfg_date || '2022-03-14'} · Cycles: {telemetry?.cycle_count ?? 2576} · Rated: {telemetry?.rated_capacity_ah ?? 100}Ah ({telemetry?.max_current_limit_a ?? 150}A Max)
+              S/N: {telemetry?.serial_number || 'N/A'} · Mfg: {telemetry?.mfg_date || 'N/A'} · Cycles: {telemetry?.cycle_count !== null && telemetry?.cycle_count !== undefined ? telemetry.cycle_count : 'N/A'} · Rated: {telemetry?.rated_capacity_ah ? `${telemetry.rated_capacity_ah}Ah` : 'N/A'} ({telemetry?.max_current_limit_a ? `${telemetry.max_current_limit_a}A Max` : 'N/A'})
             </p>
           </div>
         </div>
@@ -106,6 +107,69 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Offline / Awaiting Telemetry Status Banner */}
+      {soc === null && (
+        <div className="bg-gradient-to-r from-amber-950/40 via-slate-900 to-slate-900 border border-amber-500/40 rounded-xl p-5 shadow-lg">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 bg-amber-500/20 border border-amber-500/40 rounded-lg text-amber-400 mt-0.5">
+                <AlertOctagon className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-amber-200">
+                  {freshness?.status === 'DISCONNECTED'
+                    ? 'Serial Port Disconnected'
+                    : 'Awaiting Hardware Telemetry / Communication Verification'}
+                </h3>
+                <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                  The dashboard is currently awaiting valid Modbus RTU telemetry packets. If you are connected to physical hardware, verify:
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs text-slate-400 font-mono">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    <span>Battery powered ON (RUN LED blinking green)</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    <span>RS485 A (D+) / B (D-) polarities match</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    <span>Baud: 9600 8-E-1 or 8-N-1 (Slave ID 214 or 1)</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    <span>RJ45 Pins 1/2 (or 7/8 on secondary port)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5 self-stretch md:self-auto flex-wrap">
+              <button
+                onClick={() => onNavigate('connect')}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-xs transition shadow-sm"
+              >
+                Configure Port / Auto-Detect
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    await api.toggleSimulation(true)
+                    window.location.reload()
+                  } catch (e) {
+                    // ignore
+                  }
+                }}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold rounded-lg text-xs transition"
+              >
+                Switch to Simulation Mode
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Metric Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

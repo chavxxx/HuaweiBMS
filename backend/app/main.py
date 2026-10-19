@@ -28,8 +28,13 @@ logging.basicConfig(
 logger = logging.getLogger("huawei_bms.main")
 
 
+main_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global main_loop
+    main_loop = asyncio.get_running_loop()
     logger.info("Huawei EMS B1 Battery Manager backend starting...")
     yield
     logger.info("Shutting down Huawei EMS B1 Battery Manager backend...")
@@ -81,8 +86,9 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
+        connections = list(self.active_connections)
         dead_connections = []
-        for connection in self.active_connections:
+        for connection in connections:
             try:
                 await connection.send_json(message)
             except Exception:
@@ -96,12 +102,18 @@ ws_manager = ConnectionManager()
 
 # Hook telemetry service callback to WebSocket broadcast
 def on_telemetry_event(payload: dict):
+    global main_loop
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
+        loop = main_loop
+        if loop is None or not loop.is_running():
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = None
+        if loop and loop.is_running():
             asyncio.run_coroutine_threadsafe(ws_manager.broadcast(payload), loop)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to dispatch telemetry event to WebSocket: %s", e)
 
 
 app_context.telemetry_service.register_listener(on_telemetry_event)
