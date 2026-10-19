@@ -665,13 +665,18 @@ export const ConfigurationPage: React.FC<ConfigurationPageProps> = ({
                     )}
                     <span>{unlockResult.message}</span>
                   </div>
-                  <div className="space-y-1 text-[11px] divide-y divide-slate-800/40">
-                    {unlockResult.operations.map((op) => (
-                      <div key={op.address} className="pt-1 flex items-center justify-between">
-                        <span className="text-slate-400 truncate max-w-xs">{op.operation}</span>
-                        <span className={op.success ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
-                          {op.success ? `Verified (${op.verified_value})` : 'Failed'}
-                        </span>
+                  <div className="space-y-1.5 text-[11px] divide-y divide-slate-800/40">
+                    {unlockResult.operations.map((op, idx) => (
+                      <div key={`${op.address}-${idx}`} className="pt-1.5 flex flex-col gap-0.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-300 font-semibold">{op.operation}</span>
+                          <span className={op.success ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                            {op.success ? `Verified (${op.verified_value})` : 'Failed'}
+                          </span>
+                        </div>
+                        {op.message && (
+                          <span className="text-[10px] text-slate-400 font-sans">{op.message}</span>
+                        )}
                       </div>
                     ))}
                   </div>

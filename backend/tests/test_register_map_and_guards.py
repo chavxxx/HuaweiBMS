@@ -173,9 +173,9 @@ def test_guarded_write_physical_execution(reg_db):
 
     # Mock execute_transaction for physical hardware write (FC 0x06) and read-back (FC 0x03)
     def mock_transaction(frame, expected_func, is_write=False):
-        if expected_func == 0x06:
-            # Echo response for FC 0x06
-            return ProtocolResponse(success=True, function_code=0x06, values=[47085, 150])
+        if expected_func in (0x06, 0x10):
+            # Echo response for FC 0x06 or 0x10
+            return ProtocolResponse(success=True, function_code=expected_func, values=[47085, 150])
         elif expected_func == 0x03:
             # Read-back response: 15.0% => raw 150
             return ProtocolResponse(success=True, function_code=0x03, values=[150])
@@ -195,5 +195,48 @@ def test_guarded_write_physical_execution(reg_db):
     assert res.verified_value == 15.0
     assert len(res.steps) == 10
     assert all(s.status == "COMPLETED" for s in res.steps)
-    # Step 1 Read (FC 0x03) + Step 8 Write (FC 0x06) + Step 9 Read-Back (FC 0x03)
+    # Step 1 Read (FC 0x03) + Step 8 Write (FC 0x06/0x10) + Step 9 Read-Back (FC 0x03)
     assert serial_client.execute_transaction.call_count == 3
+
+
+def test_unlock_battery_physical_hardware_resilience():
+    """Verify unlock_battery gracefully bypasses BMS Exception 0x03 on Reg 4376 when no alarms are active."""
+    from unittest.mock import MagicMock
+    from pathlib import Path
+    from app.protocol.modbus_rtu import ProtocolResponse
+
+    json_path = Path(__file__).resolve().parent.parent / "app" / "data" / "huawei_esm_48150b1.json"
+    db = RegisterDatabase()
+    db.import_from_json(json_path.read_text())
+
+    init_db()
+    simulator = BMSSimulator()
+    serial_client = SerialClient()
+    config_svc = ConfigService(serial_client, db, simulator)
+    config_svc.enable_writes("ADMINISTRATOR")
+
+    def mock_transaction(frame, expected_func, is_write=False):
+        if expected_func == 0x03:
+            addr = (frame[2] << 8) | frame[3]
+            if addr == 70:
+                # Alarm registers 70..74: all 0 (no alarms)
+                return ProtocolResponse(success=True, function_code=0x03, values=[0, 0, 0, 0, 0])
+            elif addr in (4109, 4123):
+                return ProtocolResponse(success=True, function_code=0x03, values=[1000])
+            return ProtocolResponse(success=True, function_code=0x03, values=[0])
+        elif expected_func in (0x10, 0x06):
+            addr = (frame[2] << 8) | frame[3]
+            if addr in (4376, 4377):
+                return ProtocolResponse(success=False, error_message="BMS Exception 0x03: Illegal Data Value")
+            return ProtocolResponse(success=True, function_code=expected_func)
+        return ProtocolResponse(success=False, error_message="Unknown")
+
+    serial_client.execute_transaction = MagicMock(side_effect=mock_transaction)
+
+    res = config_svc.unlock_battery("ADMINISTRATOR", sync_clock=True, restore_charge_rate=1.000, is_simulation=False)
+    assert res["success"] is True
+    assert all(op["success"] for op in res["operations"])
+    gyro_op = next(op for op in res["operations"] if op["address"] == 4376)
+    assert gyro_op["success"] is True
+    assert "Displacement lock inactive" in gyro_op["message"]
+
