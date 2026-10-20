@@ -188,8 +188,8 @@ if sys.platform == "darwin":
         icon=icon_file,
         bundle_identifier="com.huawei.bms.manager",
         info_plist={
-            "CFBundleShortVersionString": "1.1.4",
-            "CFBundleVersion": "1.1.4",
+            "CFBundleShortVersionString": "1.1.5",
+            "CFBundleVersion": "1.1.5",
             "NSHighResolutionCapable": "True",
             "NSRequiresAquaSystemAppearance": "False",
             "LSMinimumSystemVersion": "10.15",

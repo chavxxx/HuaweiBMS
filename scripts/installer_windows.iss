@@ -2,7 +2,7 @@
 ; Generates a professional Windows Setup Installer (.exe) with desktop & start menu shortcuts
 
 #define MyAppName "Huawei EMS B1 Battery Manager"
-#define MyAppVersion "1.1.4"
+#define MyAppVersion "1.1.5"
 #define MyAppPublisher "Huawei EMS BMS Project"
 #define MyAppURL "https://github.com/example/huawei-ems-b1-manager"
 #define MyAppExeName "HuaweiEMSManager.exe"

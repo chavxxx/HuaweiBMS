@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+from typing import Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from .routes import (
@@ -45,7 +46,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Huawei EMS B1 Battery Manager API",
     description="Production-grade local desktop and serial communication service for Huawei EMS B1 / ESS BMS.",
-    version="1.1.4",
+    version="1.1.5",
     lifespan=lifespan
 )
 
@@ -147,7 +148,7 @@ def health_check():
     return {
         "status": "healthy",
         "app": "Huawei EMS B1 Battery Manager",
-        "version": "1.1.4",
+        "version": "1.1.5",
         "simulation_mode": app_context.telemetry_service.use_simulation,
         "connected": app_context.serial_client.is_connected
     }
